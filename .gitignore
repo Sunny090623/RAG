@@ -1,9 +1,3 @@
-# Ignore the nested Git repositories
-/PageIndex/
-/inference/
-/ollama/
-/ragflow/
-
 # Ignore logs
 /logs/
 Log.txt
@@ -12,12 +6,11 @@ bug.md
 bugfix_log.md
 prompt.md
 
-
-# Ignore test files
+# Ignore uploaded files & temporary visual assets
 /backend/storage/images/*.png
 /backend/storage/workspace/*.json
 
-# Ignore settings
+# Ignore local model configuration keys (contains active API keys)
 /backend/storage/*.json
 
 # Python caching

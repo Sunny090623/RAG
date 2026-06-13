@@ -1,0 +1,16 @@
+# FastAPI Backend Server
+fastapi
+uvicorn
+pydantic
+jinja2
+requests
+
+# Document Parsers
+pymupdf>=1.24.0
+python-docx
+PyPDF2
+
+# LLM Gateway & PageIndex Dependencies
+litellm
+python-dotenv
+pyyaml
