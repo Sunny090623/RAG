@@ -16,7 +16,7 @@ const settingsProvider = document.getElementById('settings-provider');
 const settingsModel = document.getElementById('settings-model');
 const settingsBase = document.getElementById('settings-base');
 const settingsKey = document.getElementById('settings-key');
-const settingsUseVlm = document.getElementById('settings-use-vlm');
+// settings-use-vlm removed
 const settingsVlmProvider = document.getElementById('settings-vlm-provider');
 const settingsVlmModel = document.getElementById('settings-vlm-model');
 const settingsVlmBase = document.getElementById('settings-vlm-base');
@@ -62,16 +62,40 @@ marked.setOptions({
   gfm: true
 });
 
+let pollingInterval = null;
+let activeTasks = [];
+let isPolling = false;
+
 // Init functions
 document.addEventListener('DOMContentLoaded', () => {
   setupTheme();
   setupSettingsUI();
+  setupCollapsibleSettings();
   setupUploadUI();
   setupTabsUI();
   setupChatUI();
   setupSplitPanes();
   setupSelectAllUI();
   
+  // Tasks queue logic on startup
+  pollTasks();
+  startQueuePolling();
+
+  // Clear completed tasks button
+  const clearTasksBtn = document.getElementById('clear-tasks-btn');
+  if (clearTasksBtn) {
+    clearTasksBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/tasks/clear', { method: 'POST' });
+        if (res.ok) {
+          pollTasks();
+        }
+      } catch (e) {
+        console.error("Failed to clear tasks:", e);
+      }
+    });
+  }
+
   // Initial Status and Library fetch
   fetchStatus();
   fetchLibrary();
@@ -141,13 +165,7 @@ function setupSettingsUI() {
     }
   });
 
-  settingsUseVlm.addEventListener('change', () => {
-    if (settingsUseVlm.checked) {
-      vlmModelContainer.classList.remove('hidden');
-    } else {
-      vlmModelContainer.classList.add('hidden');
-    }
-  });
+  // settingsUseVlm change listener removed
 
   saveChatBtn.addEventListener('click', saveChatSettings);
   saveVlmBtn.addEventListener('click', saveVlmSettings);
@@ -169,8 +187,7 @@ async function fetchStatus() {
         settingsKey.value = data.active_provider.api_key;
       }
       
-      settingsUseVlm.checked = data.vlm_provider.use_vlm;
-      settingsUseVlm.dispatchEvent(new Event('change'));
+      // settingsUseVlm update removed
       
       settingsVlmProvider.value = data.vlm_provider.provider_type || 'ollama';
       settingsVlmProvider.dispatchEvent(new Event('change'));
@@ -246,7 +263,7 @@ async function saveVlmSettings() {
   saveVlmBtn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">sync</span> Saving...';
   
   const payload = {
-    use_vlm: settingsUseVlm.checked,
+    use_vlm: true,
     vlm_provider_type: settingsVlmProvider.value,
     vlm_model: settingsVlmModel.value || null,
     vlm_api_base: settingsVlmBase.value || null,
@@ -275,6 +292,46 @@ async function saveVlmSettings() {
   }
 }
 
+// ── Collapsible Settings Sections ───────────────────────────────────────────
+function setupCollapsibleSettings() {
+  const chatHeader = document.getElementById('chat-llm-header');
+  const chatContent = document.getElementById('chat-llm-content');
+  const chatChevron = document.getElementById('chat-llm-chevron');
+
+  const vlmHeader = document.getElementById('vlm-parser-header');
+  const vlmContent = document.getElementById('vlm-parser-content');
+  const vlmChevron = document.getElementById('vlm-parser-chevron');
+
+  // Load saved state
+  const isChatCollapsed = localStorage.getItem('chat-llm-collapsed') === 'true';
+  const isVlmCollapsed = localStorage.getItem('vlm-parser-collapsed') === 'true';
+
+  if (isChatCollapsed && chatContent && chatChevron) {
+    chatContent.classList.add('hidden');
+    chatChevron.style.transform = 'rotate(-180deg)';
+  }
+  if (isVlmCollapsed && vlmContent && vlmChevron) {
+    vlmContent.classList.add('hidden');
+    vlmChevron.style.transform = 'rotate(-180deg)';
+  }
+
+  if (chatHeader && chatContent && chatChevron) {
+    chatHeader.addEventListener('click', () => {
+      const isHidden = chatContent.classList.toggle('hidden');
+      chatChevron.style.transform = isHidden ? 'rotate(-180deg)' : 'rotate(0deg)';
+      localStorage.setItem('chat-llm-collapsed', isHidden);
+    });
+  }
+
+  if (vlmHeader && vlmContent && vlmChevron) {
+    vlmHeader.addEventListener('click', () => {
+      const isHidden = vlmContent.classList.toggle('hidden');
+      vlmChevron.style.transform = isHidden ? 'rotate(-180deg)' : 'rotate(0deg)';
+      localStorage.setItem('vlm-parser-collapsed', isHidden);
+    });
+  }
+}
+
 // ── File Upload & Drag-and-Drop ─────────────────────────────────────────────
 function setupUploadUI() {
   dropZone.addEventListener('dragover', (e) => {
@@ -290,84 +347,225 @@ function setupUploadUI() {
     e.preventDefault();
     dropZone.classList.remove('border-primary', 'bg-primary/5');
     if (e.dataTransfer.files.length > 0) {
-      handleUpload(e.dataTransfer.files[0]);
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        handleUpload(e.dataTransfer.files[i]);
+      }
     }
   });
 
   fileInput.addEventListener('change', () => {
     if (fileInput.files.length > 0) {
-      handleUpload(fileInput.files[0]);
+      for (let i = 0; i < fileInput.files.length; i++) {
+        handleUpload(fileInput.files[i]);
+      }
+      fileInput.value = '';
     }
   });
 }
 
 function handleUpload(file) {
-  uploadProgressContainer.classList.remove('hidden');
-  uploadFilename.textContent = file.name;
-  uploadPercent.textContent = '0%';
-  uploadProgressBar.style.width = '0%';
-  uploadProgressBar.classList.remove('bg-red-500', 'bg-green-500', 'animate-pulse');
-  uploadProgressBar.classList.add('bg-primary');
-  
+  const taskQueueContainer = document.getElementById('task-queue-container');
+  if (taskQueueContainer) {
+    taskQueueContainer.classList.remove('hidden');
+  }
+
+  const tasksList = document.getElementById('tasks-list');
+  const tempTaskId = `upload-temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const uploadHtml = `
+    <div id="${tempTaskId}" class="p-2 bg-surface border border-outline/10 rounded-lg space-y-1.5 shadow-sm">
+      <div class="flex items-center justify-between text-[11px] font-semibold text-on-surface">
+        <span class="truncate max-w-[170px]" title="${file.name}">${file.name}</span>
+        <span class="upload-status-text text-[9px] font-bold text-primary animate-pulse uppercase">Uploading...</span>
+      </div>
+      <div class="w-full bg-outline/10 rounded-full h-1 overflow-hidden">
+        <div class="upload-progress bg-primary h-1 rounded-full w-0 transition-all duration-300"></div>
+      </div>
+    </div>
+  `;
+  if (tasksList) {
+    tasksList.insertAdjacentHTML('afterbegin', uploadHtml);
+  }
+
+  const tempElem = document.getElementById(tempTaskId);
+  const progressBar = tempElem ? tempElem.querySelector('.upload-progress') : null;
+  const statusText = tempElem ? tempElem.querySelector('.upload-status-text') : null;
+
   const formData = new FormData();
   formData.append('file', file);
-  
+
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/upload', true);
-  
+
   xhr.upload.onprogress = (e) => {
-    if (e.lengthComputable) {
+    if (e.lengthComputable && progressBar && statusText) {
       const percent = Math.round((e.loaded / e.total) * 100);
+      progressBar.style.width = `${percent}%`;
       if (percent === 100) {
-        uploadPercent.textContent = '100% (Parsing & Indexing...)';
-        uploadProgressBar.classList.add('animate-pulse');
+        statusText.textContent = 'Queuing...';
       } else {
-        uploadPercent.textContent = `${percent}%`;
+        statusText.textContent = `Uploading ${percent}%`;
       }
-      uploadProgressBar.style.width = `${percent}%`;
     }
   };
-  
+
   xhr.onload = () => {
-    uploadProgressBar.classList.remove('animate-pulse');
     if (xhr.status === 200) {
-      const res = JSON.parse(xhr.responseText);
-      uploadPercent.textContent = 'Completed!';
-      uploadProgressBar.classList.remove('bg-primary');
-      uploadProgressBar.classList.add('bg-green-500');
-      uploadProgressBar.style.width = '100%';
-      showToast(`Uploaded "${file.name}" successfully! PageIndex index tree generated.`, "success");
-      selectedChatDocIds.add(res.doc_id);
-      fetchLibrary().then(() => {
-        selectDocument(res.doc_id);
-      });
+      if (tempElem) {
+        tempElem.remove();
+      }
+      showToast(`Uploaded "${file.name}" to queue successfully!`, "success");
+      pollTasks();
+      startQueuePolling();
     } else {
-      let err_msg = "Unknown parsing error";
+      let err_msg = "Unknown error";
       try {
         err_msg = JSON.parse(xhr.responseText).detail || err_msg;
       } catch (e) {}
-      uploadPercent.textContent = 'Failed';
-      uploadProgressBar.classList.remove('bg-primary');
-      uploadProgressBar.classList.add('bg-red-500');
+      if (statusText && progressBar) {
+        statusText.textContent = 'Upload Failed';
+        statusText.className = 'text-[9px] font-bold text-red-500 uppercase';
+        progressBar.className = 'bg-red-500 h-1 rounded-full w-full';
+      }
       showToast(`Upload failed: ${err_msg}`, "error");
+      setTimeout(() => {
+        if (tempElem) tempElem.remove();
+      }, 5000);
     }
-    setTimeout(() => {
-      uploadProgressContainer.classList.add('hidden');
-    }, 4000);
   };
-  
+
   xhr.onerror = () => {
-    uploadProgressBar.classList.remove('animate-pulse');
-    uploadPercent.textContent = 'Failed';
-    uploadProgressBar.classList.remove('bg-primary');
-    uploadProgressBar.classList.add('bg-red-500');
+    if (statusText && progressBar) {
+      statusText.textContent = 'Network Error';
+      statusText.className = 'text-[9px] font-bold text-red-500 uppercase';
+      progressBar.className = 'bg-red-500 h-1 rounded-full w-full';
+    }
     showToast("Upload failed due to connection error.", "error");
     setTimeout(() => {
-      uploadProgressContainer.classList.add('hidden');
-    }, 4000);
+      if (tempElem) tempElem.remove();
+    }, 5000);
   };
-  
+
   xhr.send(formData);
+}
+
+// ── Background Tasks Queue Polling ──────────────────────────────────────────
+async function pollTasks() {
+  if (isPolling) return;
+  isPolling = true;
+  try {
+    const res = await fetch('/api/tasks');
+    if (!res.ok) throw new Error("Failed to fetch tasks");
+    const tasks = await res.json();
+    
+    activeTasks = tasks;
+    renderTasksQueue();
+
+    const hasActive = tasks.some(t => t.status === 'pending' || t.status === 'processing');
+    
+    let newCompletion = false;
+    tasks.forEach(t => {
+      if (t.status === 'completed' && !selectedChatDocIds.has(t.doc_id)) {
+        selectedChatDocIds.add(t.doc_id);
+        newCompletion = true;
+      }
+    });
+
+    if (newCompletion) {
+      await fetchLibrary();
+      const completedDocs = tasks.filter(t => t.status === 'completed');
+      if (completedDocs.length > 0 && !activeDocId) {
+        selectDocument(completedDocs[completedDocs.length - 1].doc_id);
+      }
+    }
+
+    if (!hasActive) {
+      stopQueuePolling();
+    }
+  } catch (e) {
+    console.error("Error polling tasks:", e);
+  } finally {
+    isPolling = false;
+  }
+}
+
+function startQueuePolling() {
+  if (!pollingInterval) {
+    pollingInterval = setInterval(pollTasks, 2000);
+  }
+}
+
+function stopQueuePolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+}
+
+function renderTasksQueue() {
+  const taskQueueContainer = document.getElementById('task-queue-container');
+  const tasksList = document.getElementById('tasks-list');
+  if (!taskQueueContainer || !tasksList) return;
+
+  if (activeTasks.length === 0) {
+    const hasTempUploads = tasksList.querySelector('[id^="upload-temp-"]');
+    if (!hasTempUploads) {
+      taskQueueContainer.classList.add('hidden');
+      return;
+    }
+  }
+
+  taskQueueContainer.classList.remove('hidden');
+
+  const tempElems = Array.from(tasksList.querySelectorAll('[id^="upload-temp-"]'));
+  
+  let html = activeTasks.map(task => {
+    let badgeClass = '';
+    let statusLabel = '';
+    let progressBarHtml = '';
+
+    if (task.status === 'pending') {
+      badgeClass = 'bg-outline/10 text-on-surface-variant border border-outline/20';
+      statusLabel = 'Queued';
+      progressBarHtml = `
+        <div class="w-full bg-outline/10 rounded-full h-1 overflow-hidden">
+          <div class="bg-outline/35 h-1 rounded-full w-0"></div>
+        </div>
+      `;
+    } else if (task.status === 'processing') {
+      badgeClass = 'bg-primary/10 text-primary border border-primary/20 animate-pulse';
+      statusLabel = 'Processing...';
+      progressBarHtml = `
+        <div class="w-full bg-outline/10 rounded-full h-1 overflow-hidden">
+          <div class="bg-primary h-1 rounded-full w-full animate-pulse"></div>
+        </div>
+      `;
+    } else if (task.status === 'completed') {
+      badgeClass = 'bg-green-500/10 text-green-500 border border-green-500/20';
+      statusLabel = 'Completed';
+    } else if (task.status === 'failed') {
+      badgeClass = 'bg-red-500/10 text-red-500 border border-red-500/20';
+      statusLabel = 'Failed';
+    }
+
+    const errorDetails = task.error ? `<div class="text-[9px] text-red-500/90 font-medium leading-tight max-h-12 overflow-y-auto mt-1 bg-red-500/5 p-1 rounded border border-red-500/10" title="${task.error.replace(/"/g, '&quot;')}">${task.error}</div>` : '';
+
+    return `
+      <div id="task-${task.task_id}" class="p-2 bg-surface border border-outline/10 rounded-lg space-y-1.5 shadow-sm transition-all duration-200">
+        <div class="flex items-center justify-between text-[11px] font-semibold text-on-surface">
+          <span class="truncate max-w-[170px]" title="${task.filename}">${task.filename}</span>
+          <span class="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${badgeClass}">${statusLabel}</span>
+        </div>
+        ${progressBarHtml}
+        ${errorDetails}
+      </div>
+    `;
+  }).join('');
+
+  tasksList.innerHTML = html;
+
+  tempElems.forEach(el => {
+    tasksList.insertBefore(el, tasksList.firstChild);
+  });
 }
 
 // ── Library List ────────────────────────────────────────────────────────────
@@ -1011,6 +1209,50 @@ function setupSplitPanes() {
         document.removeEventListener('mouseup', onMouseUp);
       }
       
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+  }
+
+  // Vertical splitter drag logic for the inspector tree structure
+  const inspectorSplitter = document.getElementById('inspector-vertical-splitter');
+  const inspectorTreePanel = document.getElementById('inspector-tree-panel');
+
+  const minTreeHeight = 80;
+  const savedTreeHeight = localStorage.getItem('inspector-tree-height');
+  if (savedTreeHeight && inspectorTreePanel) {
+    inspectorTreePanel.style.height = `${savedTreeHeight}px`;
+  }
+
+  if (inspectorSplitter && inspectorTreePanel && inspectorPanel) {
+    inspectorSplitter.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      document.body.style.cursor = 'row-resize';
+
+      const startY = e.clientY;
+      const startHeight = inspectorTreePanel.offsetHeight;
+
+      function onMouseMove(moveEvent) {
+        const currentClientY = moveEvent.clientY;
+        window.requestAnimationFrame(() => {
+          const deltaY = currentClientY - startY;
+          let newHeight = startHeight + deltaY;
+          
+          if (newHeight < minTreeHeight) newHeight = minTreeHeight;
+          const maxTreeHeight = inspectorPanel.offsetHeight - 120;
+          if (newHeight > maxTreeHeight) newHeight = maxTreeHeight;
+
+          inspectorTreePanel.style.height = `${newHeight}px`;
+          localStorage.setItem('inspector-tree-height', newHeight);
+        });
+      }
+
+      function onMouseUp() {
+        document.body.style.cursor = '';
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      }
+
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
     });

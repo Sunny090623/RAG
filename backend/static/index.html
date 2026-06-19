@@ -85,82 +85,86 @@
       <div class="p-4 border-b border-outline/10 space-y-4">
         <!-- Chat LLM Section -->
         <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <h2 class="font-display font-bold text-xs tracking-wide text-primary flex items-center gap-1.5 uppercase">
+          <div class="flex items-center justify-between cursor-pointer" id="chat-llm-header">
+            <h2 class="font-display font-bold text-xs tracking-wide text-primary flex items-center gap-1.5 uppercase select-none">
               <span class="material-symbols-outlined text-base">forum</span> Chat LLM Provider
             </h2>
+            <span id="chat-llm-chevron" class="material-symbols-outlined text-sm text-on-surface-variant transition-transform duration-200">keyboard_arrow_up</span>
           </div>
           
-          <div>
-            <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">Provider Type</label>
-            <select id="settings-provider" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
-              <option value="ollama">Local Ollama</option>
-              <option value="xinference">Local Xinference</option>
-              <option value="openai">Standard OpenAI API</option>
-            </select>
-          </div>
-          
-          <div>
-            <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">Model Name</label>
-            <input type="text" id="settings-model" placeholder="e.g. gemma4:12b-it-qat" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
-          </div>
-          
-          <div id="api-base-container">
-            <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">API Endpoint Base</label>
-            <input type="text" id="settings-base" placeholder="http://localhost:11434" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
-          </div>
-          
-          <div id="api-key-container" class="hidden">
-            <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">API Key</label>
-            <input type="password" id="settings-key" placeholder="Enter API Key" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
-          </div>
-
-          <button id="save-chat-btn" class="w-full py-1.5 bg-primary/95 text-on-primary hover:bg-primary text-xs font-semibold rounded-lg shadow transition-colors flex items-center justify-center gap-1">
-            <span class="material-symbols-outlined text-sm">save</span> Save Chat Settings
-          </button>
-        </div>
-
-        <!-- VLM Parser Section -->
-        <div class="border-t border-outline/10 pt-3 space-y-3">
-          <div class="flex items-center justify-between">
-            <h2 class="font-display font-bold text-xs tracking-wide text-primary flex items-center gap-1.5 uppercase">
-              <span class="material-symbols-outlined text-base">visibility</span> VLM Parser (PDF/Vision)
-            </h2>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" id="settings-use-vlm" class="sr-only peer">
-              <div class="w-8 h-4.5 bg-outline/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-primary"></div>
-            </label>
-          </div>
-          
-          <div id="vlm-model-container" class="hidden space-y-3">
+          <div id="chat-llm-content" class="space-y-3">
             <div>
-              <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">VLM Provider Type</label>
-              <select id="settings-vlm-provider" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+              <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">Provider Type</label>
+              <select id="settings-provider" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
                 <option value="ollama">Local Ollama</option>
                 <option value="xinference">Local Xinference</option>
                 <option value="openai">Standard OpenAI API</option>
               </select>
             </div>
-
+            
             <div>
-              <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">VLM Model Name</label>
-              <input type="text" id="settings-vlm-model" placeholder="e.g. gemma4:12b-it-qat" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+              <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">Model Name</label>
+              <input type="text" id="settings-model" placeholder="e.g. gemma4:12b-it-qat" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+            </div>
+            
+            <div id="api-base-container">
+              <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">API Endpoint Base</label>
+              <input type="text" id="settings-base" placeholder="http://localhost:11434" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+            </div>
+            
+            <div id="api-key-container" class="hidden">
+              <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">API Key</label>
+              <input type="password" id="settings-key" placeholder="Enter API Key" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
             </div>
 
-            <div id="vlm-api-base-container">
-              <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">VLM API Endpoint Base</label>
-              <input type="text" id="settings-vlm-base" placeholder="http://localhost:11434" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
-            </div>
+            <button id="save-chat-btn" class="w-full py-1.5 bg-primary/95 text-on-primary hover:bg-primary text-xs font-semibold rounded-lg shadow transition-colors flex items-center justify-center gap-1">
+              <span class="material-symbols-outlined text-sm">save</span> Save Chat Settings
+            </button>
+          </div>
+        </div>
 
-            <div id="vlm-api-key-container" class="hidden">
-              <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">VLM API Key</label>
-              <input type="password" id="settings-vlm-key" placeholder="Enter API Key" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+        <!-- VLM Parser Section -->
+        <div class="border-t border-outline/10 pt-3 space-y-3">
+          <div class="flex items-center justify-between cursor-pointer" id="vlm-parser-header">
+            <h2 class="font-display font-bold text-xs tracking-wide text-primary flex items-center gap-1.5 uppercase select-none">
+              <span class="material-symbols-outlined text-base">visibility</span> VLM Parser (PDF/Vision)
+            </h2>
+            <div class="flex items-center gap-2">
+              <span id="vlm-parser-chevron" class="material-symbols-outlined text-sm text-on-surface-variant transition-transform duration-200">keyboard_arrow_up</span>
             </div>
           </div>
+          
+          <div id="vlm-parser-content" class="space-y-3">
+            <div id="vlm-model-container" class="space-y-3">
+              <div>
+                <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">VLM Provider Type</label>
+                <select id="settings-vlm-provider" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+                  <option value="ollama">Local Ollama</option>
+                  <option value="xinference">Local Xinference</option>
+                  <option value="openai">Standard OpenAI API</option>
+                </select>
+              </div>
 
-          <button id="save-vlm-btn" class="w-full py-1.5 bg-primary/95 text-on-primary hover:bg-primary text-xs font-semibold rounded-lg shadow transition-colors flex items-center justify-center gap-1">
-            <span class="material-symbols-outlined text-sm">save</span> Save VLM Settings
-          </button>
+              <div>
+                <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">VLM Model Name</label>
+                <input type="text" id="settings-vlm-model" placeholder="e.g. gemma4:12b-it-qat" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+              </div>
+
+              <div id="vlm-api-base-container">
+                <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">VLM API Endpoint Base</label>
+                <input type="text" id="settings-vlm-base" placeholder="http://localhost:11434" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+              </div>
+
+              <div id="vlm-api-key-container" class="hidden">
+                <label class="block text-[10px] font-semibold text-on-surface-variant mb-0.5">VLM API Key</label>
+                <input type="password" id="settings-vlm-key" placeholder="Enter API Key" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-1.5 text-on-surface focus:outline-none focus:border-primary">
+              </div>
+            </div>
+
+            <button id="save-vlm-btn" class="w-full py-1.5 bg-primary/95 text-on-primary hover:bg-primary text-xs font-semibold rounded-lg shadow transition-colors flex items-center justify-center gap-1">
+              <span class="material-symbols-outlined text-sm">save</span> Save VLM Settings
+            </button>
+          </div>
         </div>
       </div>
       
@@ -171,20 +175,22 @@
         </h2>
         
         <div id="drop-zone" class="border-2 border-dashed border-outline/30 hover:border-primary/50 transition-colors rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer relative bg-surface/30">
-          <input type="file" id="file-input" class="absolute inset-0 opacity-0 cursor-pointer" accept=".pdf,.png,.jpg,.jpeg,.txt,.md,.docx,.markdown">
+          <input type="file" id="file-input" class="absolute inset-0 opacity-0 cursor-pointer" accept=".pdf,.png,.jpg,.jpeg,.txt,.md,.docx,.markdown" multiple>
           <span class="material-symbols-outlined text-3xl text-primary mb-2">cloud_upload</span>
           <span class="text-xs font-medium text-on-surface">Drag & Drop or Click</span>
           <span class="text-[10px] text-on-surface-variant mt-1">PDF, Word, TXT, Markdown, PNG, JPG</span>
         </div>
         
-        <!-- Upload Progress indicator -->
-        <div id="upload-progress-container" class="hidden mt-3 space-y-1">
-          <div class="flex items-center justify-between text-[10px] text-on-surface-variant font-semibold">
-            <span id="upload-filename" class="truncate max-w-[150px]">document.pdf</span>
-            <span id="upload-percent">0%</span>
+        <!-- Upload Queue and Progress Container -->
+        <div id="task-queue-container" class="hidden mt-3 space-y-2 border-t border-outline/10 pt-3">
+          <div class="flex items-center justify-between text-xs font-bold text-primary">
+            <span class="flex items-center gap-1.5 uppercase font-display text-[11px] tracking-wider animate-pulse">
+              <span class="material-symbols-outlined text-base">hourglass_empty</span> Upload Queue
+            </span>
+            <button id="clear-tasks-btn" class="text-[9px] font-bold text-on-surface-variant/80 hover:text-red-500 transition-colors uppercase bg-outline/10 px-1.5 py-0.5 rounded border border-outline/15">Clear Completed</button>
           </div>
-          <div class="w-full bg-outline/10 rounded-full h-1.5 overflow-hidden">
-            <div id="upload-progress-bar" class="bg-primary h-1.5 rounded-full w-0 transition-all duration-300"></div>
+          <div id="tasks-list" class="space-y-2 max-h-40 overflow-y-auto pr-1">
+            <!-- Queue items will be rendered dynamically -->
           </div>
         </div>
       </div>
@@ -270,16 +276,18 @@
         </h2>
       </div>
       
-      <!-- Outline Tree Scroll Area (Fixed Height half-panel) -->
-      <div class="h-64 border-b border-outline/10 flex flex-col overflow-hidden">
-        <div class="bg-surface/30 px-4 py-2 border-b border-outline/10 text-xs font-semibold text-on-surface-variant flex items-center justify-between">
+      <!-- Outline Tree Scroll Area (Vertical Resizable Panel) -->
+      <div id="inspector-tree-panel" class="border-b border-outline/10 flex flex-col overflow-hidden" style="height: 256px;">
+        <div class="bg-surface/30 px-4 py-2 border-b border-outline/10 text-xs font-semibold text-on-surface-variant">
           <span id="inspector-tree-title">DOCUMENT TREE STRUCTURE</span>
-          <span class="text-[10px] text-primary">Click section to inspect</span>
         </div>
         <div id="tree-container" class="flex-1 overflow-y-auto p-4 text-xs font-medium space-y-1">
           <div class="text-on-surface-variant text-center py-10">Select a document to see its structural tree outline.</div>
         </div>
       </div>
+      
+      <!-- Horizontal Splitter Divider -->
+      <div id="inspector-vertical-splitter" class="h-[5px] cursor-row-resize shrink-0 z-10 border-b border-outline/10 hover:bg-primary/30 active:bg-primary transition-colors bg-transparent"></div>
       
       <!-- Page content dual-view (Images / markdown text) -->
       <div class="flex-1 flex flex-col overflow-hidden">

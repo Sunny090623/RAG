@@ -126,7 +126,7 @@ def load_settings():
             with open(SETTINGS_VLM_FILE, "r") as f:
                 data = json.load(f)
                 set_vlm_provider(
-                    use_vlm=data.get("use_vlm", False),
+                    use_vlm=True,
                     provider_type=data.get("vlm_provider_type") or "ollama",
                     model_name=data.get("vlm_model") or "gemma4:12b-it-qat",
                     api_base=data.get("vlm_api_base"),
@@ -138,12 +138,54 @@ def load_settings():
             logger.error(f"Failed to load saved VLM settings: {e}")
             
     if not vlm_loaded:
-        set_vlm_provider(False, "ollama", "gemma4:12b-it-qat", "http://localhost:11434")
+        set_vlm_provider(True, "ollama", "gemma4:12b-it-qat", "http://localhost:11434")
+
+tasks_queue = asyncio.Queue()
+tasks_dict = {}
+tasks_list = []
+
+async def task_worker():
+    while True:
+        try:
+            task_id = await tasks_queue.get()
+            task = tasks_dict.get(task_id)
+            if not task:
+                tasks_queue.task_done()
+                continue
+            
+            task["status"] = "processing"
+            file_path = UPLOADS_DIR / f"{task_id}_{task['filename']}"
+            try:
+                doc_id = await index_document(str(file_path))
+                task["status"] = "completed"
+                task["doc_id"] = doc_id
+            except Exception as e:
+                logger.error(f"Background parsing/indexing failed for {task['filename']}: {e}", exc_info=True)
+                task["status"] = "failed"
+                task["error"] = str(e)
+            finally:
+                if file_path.exists():
+                    try:
+                        os.remove(file_path)
+                    except:
+                        pass
+                tasks_queue.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in task worker loop: {e}", exc_info=True)
+            await asyncio.sleep(1)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_settings()
+    worker = asyncio.create_task(task_worker())
     yield
+    worker.cancel()
+    try:
+        await worker
+    except asyncio.CancelledError:
+        pass
 
 # FastAPI
 app = FastAPI(title="Local Multi-Modal Vectorless RAG", lifespan=lifespan)
@@ -221,7 +263,7 @@ async def update_vlm_settings(payload: VLMSettingsPayload):
             vlm_key = get_vlm_provider().api_key
             
         set_vlm_provider(
-            use_vlm=payload.use_vlm,
+            use_vlm=True,
             provider_type=payload.vlm_provider_type or "ollama",
             model_name=payload.vlm_model or "gemma4:12b-it-qat",
             api_base=payload.vlm_api_base,
@@ -230,6 +272,7 @@ async def update_vlm_settings(payload: VLMSettingsPayload):
         
         # Save to file
         settings_data = payload.dict()
+        settings_data["use_vlm"] = True
         if settings_data.get("vlm_api_key") == "***":
             settings_data["vlm_api_key"] = get_vlm_provider().api_key
             
@@ -247,28 +290,50 @@ async def upload_file(file: UploadFile = File(...)):
     if ext not in [".pdf", ".png", ".jpg", ".jpeg", ".txt", ".md", ".docx", ".markdown"]:
         raise HTTPException(status_code=400, detail=f"Unsupported file format: {ext}")
         
-    temp_path = UPLOADS_DIR / file.filename
+    import uuid
+    task_id = str(uuid.uuid4())
+    temp_path = UPLOADS_DIR / f"{task_id}_{file.filename}"
     try:
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        # Run indexing asynchronously
-        doc_id = await index_document(str(temp_path))
+        task = {
+            "task_id": task_id,
+            "filename": file.filename,
+            "status": "pending",
+            "error": None,
+            "doc_id": None
+        }
+        tasks_dict[task_id] = task
+        tasks_list.append(task)
+        await tasks_queue.put(task_id)
+        
         return {
-            "status": "success",
-            "doc_id": doc_id,
-            "doc_name": file.filename
+            "status": "queued",
+            "task_id": task_id,
+            "filename": file.filename
         }
     except Exception as e:
-        logger.error(f"File upload & indexing failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # Clean up original temp upload file as document is indexed/copied to workspace
+        logger.error(f"File upload & queue failed: {e}", exc_info=True)
         if temp_path.exists():
             try:
                 os.remove(temp_path)
             except:
                 pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/tasks")
+async def get_tasks():
+    return tasks_list
+
+@app.post("/api/tasks/clear")
+async def clear_tasks():
+    global tasks_list
+    completed_or_failed = [t for t in tasks_list if t["status"] in ("completed", "failed")]
+    for t in completed_or_failed:
+        tasks_dict.pop(t["task_id"], None)
+    tasks_list = [t for t in tasks_list if t["status"] not in ("completed", "failed")]
+    return {"status": "success", "message": f"Cleared {len(completed_or_failed)} tasks."}
 
 @app.get("/api/documents")
 async def list_documents():

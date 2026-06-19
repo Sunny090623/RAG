@@ -1,16 +1,9 @@
 {
-  "890d5be3-d0d4-4af7-8759-a991ea561564": {
+  "9953f1b2-c863-4b88-b0d8-f53b947a6c9e": {
     "type": "pdf",
-    "doc_name": "jensen huang.pdf",
-    "doc_description": "PageIndex parsed PDF: jensen huang.pdf",
-    "path": "C:\\Users\\zihan\\Desktop\\My-Projects\\rag\\backend\\storage\\uploads\\jensen huang.pdf",
-    "page_count": 10
-  },
-  "42d3d8cf-a7de-441a-8ed3-d3e354e42308": {
-    "type": "pdf",
-    "doc_name": "bill gates.pdf",
-    "doc_description": "PageIndex parsed PDF: bill gates.pdf",
-    "path": "C:\\Users\\zihan\\Desktop\\My-Projects\\rag\\backend\\storage\\uploads\\bill gates.pdf",
+    "doc_name": "c3b9e453-2518-4ce4-89e9-4dce868dcae2_bill gates.pdf",
+    "doc_description": "PageIndex parsed PDF: c3b9e453-2518-4ce4-89e9-4dce868dcae2_bill gates.pdf",
+    "path": "C:\\Users\\zihan\\Desktop\\My-Projects\\rag\\backend\\storage\\uploads\\c3b9e453-2518-4ce4-89e9-4dce868dcae2_bill gates.pdf",
     "page_count": 8
   }
 }
