@@ -17,7 +17,7 @@ from pageindex.page_index import tree_parser
 from pageindex.page_index_md import md_to_tree
 from pageindex.utils import ConfigLoader, write_node_id, generate_summaries_for_structure, JsonLogger, add_node_text, sanitize_filename
 from backend.provider import get_active_provider, get_vlm_provider, active_chat_provider
-from backend.shared import get_shared_client, STORAGE_DIR, WORKSPACE_DIR, IMAGES_DIR
+from backend.shared import get_shared_client, STORAGE_DIR, get_images_dir
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ async def parse_image(file_path, doc_id):
     ext = os.path.splitext(file_path)[1].lower()
     
     # Save the original image in our storage under its folder
-    doc_folder = IMAGES_DIR / sanitize_filename(doc_name)
+    doc_folder = get_images_dir() / sanitize_filename(doc_name)
     doc_folder.mkdir(parents=True, exist_ok=True)
     cached_img_path = doc_folder / f"{doc_id}_1.png"
     # Convert/copy to png
@@ -149,7 +149,7 @@ async def parse_pdf_hybrid(file_path, doc_id):
     pages = []
     
     doc_name = os.path.basename(file_path)
-    doc_folder = IMAGES_DIR / sanitize_filename(doc_name)
+    doc_folder = get_images_dir() / sanitize_filename(doc_name)
     doc_folder.mkdir(parents=True, exist_ok=True)
     
     with fitz.open(file_path) as doc:
@@ -196,7 +196,7 @@ async def parse_pdf_hybrid(file_path, doc_id):
         
     return pages
 
-async def index_document(file_path, workspace_path=str(WORKSPACE_DIR)):
+async def index_document(file_path, workspace_path=None):
     """Indexes any supported file and registers it in the PageIndexClient workspace."""
     file_path = os.path.abspath(os.path.expanduser(file_path))
     if not os.path.exists(file_path):

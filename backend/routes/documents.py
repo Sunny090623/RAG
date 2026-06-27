@@ -13,9 +13,8 @@ from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from backend.shared import get_shared_client as get_document_client, WORKSPACE_DIR, IMAGES_DIR
+from backend.shared import get_shared_client as get_document_client, get_images_dir, get_uploads_dir
 from backend.utils import find_node_by_id, map_structure_keys, sanitize_filename
-from backend.routes.upload import UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +80,11 @@ async def rename_document(doc_id: str, payload: RenamePayload):
     old_name = doc_info.get("doc_name")
     
     # 1. Rename images folder on disk if it exists
+    images_dir = get_images_dir()
+    uploads_dir = get_uploads_dir()
     if old_name:
-        old_folder = IMAGES_DIR / sanitize_filename(old_name)
-        new_folder = IMAGES_DIR / sanitize_filename(new_name)
+        old_folder = images_dir / sanitize_filename(old_name)
+        new_folder = images_dir / sanitize_filename(new_name)
         if old_folder.exists() and old_folder.is_dir() and old_folder != new_folder:
             try:
                 if new_folder.exists():
@@ -94,12 +95,12 @@ async def rename_document(doc_id: str, payload: RenamePayload):
             except Exception as e:
                 logger.error(f"Failed to rename document images folder: {e}")
                 
-    # 2. Rename original file inside UPLOADS_DIR if it exists
+    # 2. Rename original file inside uploads_dir if it exists
     old_path = doc_info.get("path")
     if old_path and os.path.exists(old_path):
         old_path_obj = Path(old_path)
         try:
-            if old_path_obj.parent.resolve() == UPLOADS_DIR.resolve():
+            if old_path_obj.parent.resolve() == uploads_dir.resolve():
                 filename = old_path_obj.name
                 parts = filename.split("_", 1)
                 prefix = ""
@@ -107,11 +108,11 @@ async def rename_document(doc_id: str, payload: RenamePayload):
                     prefix = parts[0] + "_"
                 ext = old_path_obj.suffix
                 new_filename = f"{prefix}{new_name}{ext}"
-                new_path = UPLOADS_DIR / new_filename
+                new_path = uploads_dir / new_filename
                 
                 if new_path != old_path_obj:
                     if new_path.exists():
-                        new_path = UPLOADS_DIR / f"{uuid.uuid4()}_{new_name}{ext}"
+                        new_path = uploads_dir / f"{uuid.uuid4()}_{new_name}{ext}"
                     os.rename(old_path_obj, new_path)
                     doc_info["path"] = str(new_path)
                     logger.info(f"Renamed original file path from {old_path_obj} to {new_path}")
@@ -187,9 +188,10 @@ async def delete_document(doc_id: str):
             logger.error(f"Failed to delete document JSON: {e}")
         
     # Delete folder-based visual images
+    images_dir = get_images_dir()
     doc_name = doc_info.get("doc_name")
     if doc_name:
-        doc_folder = IMAGES_DIR / sanitize_filename(doc_name)
+        doc_folder = images_dir / sanitize_filename(doc_name)
         if doc_folder.exists() and doc_folder.is_dir():
             try:
                 shutil.rmtree(doc_folder)
@@ -197,7 +199,7 @@ async def delete_document(doc_id: str):
                 logger.error(f"Failed to delete document images folder: {e}")
                 
     # Also fallback to delete flat visual images
-    for p in IMAGES_DIR.glob(f"{doc_id}_*.png"):
+    for p in images_dir.glob(f"{doc_id}_*.png"):
         try:
             os.remove(p)
         except:
@@ -216,12 +218,13 @@ async def get_page_image(doc_id: str, page_num: int):
     if not doc_name:
         raise HTTPException(status_code=404, detail="Document name not found")
         
-    doc_folder = IMAGES_DIR / sanitize_filename(doc_name)
+    images_dir = get_images_dir()
+    doc_folder = images_dir / sanitize_filename(doc_name)
     img_path = doc_folder / f"{doc_id}_{page_num}.png"
     
     # Fallback to the old flat path for legacy documents
     if not img_path.exists():
-        img_path = IMAGES_DIR / f"{doc_id}_{page_num}.png"
+        img_path = images_dir / f"{doc_id}_{page_num}.png"
         
     if not img_path.exists():
         raise HTTPException(status_code=404, detail="Page image not found")

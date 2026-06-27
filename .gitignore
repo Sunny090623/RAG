@@ -6,12 +6,9 @@ bug.md
 bugfix_log.md
 prompt.md
 
-# Ignore uploaded files & temporary visual assets
-/backend/storage/images/*.png
-/backend/storage/workspace/*.json
-
-# Ignore local model configuration keys (contains active API keys)
-/backend/storage/*.json
+# Ignore backend/storage directory entirely (contains runtime data, notebooks, and settings with API keys)
+/backend/storage/*
+!/backend/storage/.gitkeep
 
 # Python caching
 **/__pycache__/
@@ -19,11 +16,9 @@ prompt.md
 **/*.pyo
 **/*.pyd
 
-# Test Files
-/tests/
-
 # Scratch files
 /scratch/
+/tests/
 
 # Environment variables
 .env
@@ -41,3 +36,6 @@ ENV/
 *.njsproj
 *.sln
 *.swp
+
+#Others
+*.txt

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PageIndex — Notebook Dashboard</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Material Symbols -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Custom Tailwind Config -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: 'rgba(var(--primary-rgb), <alpha-value>)',
+            'on-primary': 'rgba(var(--on-primary-rgb), <alpha-value>)',
+            'primary-container': 'rgba(var(--primary-container-rgb), <alpha-value>)',
+            'on-primary-container': 'rgba(var(--on-primary-container-rgb), <alpha-value>)',
+            surface: 'rgba(var(--surface-rgb), <alpha-value>)',
+            'surface-container': 'rgba(var(--surface-container-rgb), <alpha-value>)',
+            'surface-container-high': 'rgba(var(--surface-container-high-rgb), <alpha-value>)',
+            'on-surface': 'rgba(var(--on-surface-rgb), <alpha-value>)',
+            'on-surface-variant': 'rgba(var(--on-surface-variant-rgb), <alpha-value>)',
+            outline: 'rgba(var(--outline-rgb), <alpha-value>)',
+            error: 'rgba(var(--error-rgb), <alpha-value>)',
+            'error-container': 'rgba(var(--error-container-rgb), <alpha-value>)',
+            'on-error-container': 'rgba(var(--on-error-container-rgb), <alpha-value>)',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            display: ['Outfit', 'sans-serif'],
+          }
+        }
+      },
+      darkMode: 'class'
+    }
+  </script>
+  <link rel="stylesheet" href="index.css">
+  <style>
+    /* Gradient cover presets for notebook cards */
+    .cover-grad-0 { background: linear-gradient(135deg, #a78bfa, #c084fc); } /* Purple-Violet */
+    .cover-grad-1 { background: linear-gradient(135deg, #60a5fa, #38bdf8); } /* Blue-Sky */
+    .cover-grad-2 { background: linear-gradient(135deg, #fb923c, #fbbf24); } /* Orange-Amber */
+    .cover-grad-3 { background: linear-gradient(135deg, #34d399, #6ee7b7); } /* Emerald-Green */
+    .cover-grad-4 { background: linear-gradient(135deg, #f472b6, #fb7185); } /* Pink-Rose */
+
+    /* Glassmorphism custom dialog */
+    .dashboard-modal {
+      background: rgba(33, 31, 38, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(147, 143, 153, 0.2);
+    }
+    html:not(.dark) .dashboard-modal {
+      background: rgba(254, 247, 255, 0.9);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(121, 116, 126, 0.15);
+    }
+  </style>
+  <script>
+    // Immediate script to prevent flash of light theme
+    const isDark = localStorage.getItem('theme') !== 'light';
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  </script>
+</head>
+<body class="bg-surface text-on-surface font-sans min-h-screen flex flex-col transition-colors duration-300">
+
+  <!-- Header -->
+  <header class="h-16 px-8 border-b border-outline/10 flex items-center justify-between shrink-0 bg-surface-container/60 backdrop-blur sticky top-0 z-40">
+    <div class="flex items-center gap-3">
+      <span class="material-symbols-outlined text-primary text-3xl font-bold">account_tree</span>
+      <h1 class="font-display font-bold text-xl tracking-tight text-on-surface">
+        PageIndex <span class="text-primary text-sm font-semibold ml-2 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">Notebooks</span>
+      </h1>
+    </div>
+
+    <!-- Search & Filters -->
+    <div class="flex items-center gap-4 max-w-md w-full mx-8">
+      <div class="relative w-full">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+        <input type="text" id="search-bar" placeholder="Search notebooks..." class="w-full text-xs rounded-full bg-surface-container border border-outline/20 pl-9 pr-4 py-2 text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+      </div>
+    </div>
+    
+    <div class="flex items-center gap-3">
+      <!-- Sort dropdown -->
+      <div class="relative">
+        <select id="sort-select" class="text-xs rounded-lg bg-surface-container border border-outline/20 p-2 text-on-surface font-medium focus:outline-none focus:border-primary cursor-pointer">
+          <option value="recent">Most Recent</option>
+          <option value="name">Alphabetical</option>
+        </select>
+      </div>
+
+      <!-- Theme Switcher -->
+      <button id="theme-toggle" class="p-2 rounded-full hover:bg-outline/10 text-on-surface-variant transition-colors" title="Toggle Theme">
+        <span class="material-symbols-outlined">light_mode</span>
+      </button>
+
+      <!-- Settings Button -->
+      <button id="settings-btn" class="p-2 rounded-full hover:bg-outline/10 text-on-surface-variant transition-colors" title="Global LLM/VLM Settings">
+        <span class="material-symbols-outlined">settings</span>
+      </button>
+
+      <!-- User Avatar -->
+      <div class="w-8 h-8 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center shrink-0 font-display font-bold text-xs text-primary" title="User Profile">
+        AG
+      </div>
+
+      <!-- Create Button -->
+      <button id="create-nb-btn" class="ml-2 py-2 px-4 bg-primary text-on-primary hover:bg-primary/95 text-xs font-semibold rounded-full shadow transition-all flex items-center gap-1.5 hover:shadow-lg">
+        <span class="material-symbols-outlined text-sm font-bold">add</span> Create Notebook
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Grid -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-8 py-10">
+    <div class="mb-8">
+      <h2 class="font-display font-bold text-2xl tracking-tight text-on-surface">My Notebooks</h2>
+      <p class="text-xs text-on-surface-variant mt-1">Select a notebook to analyze and query your documents.</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="hidden flex-col items-center justify-center text-center py-20 bg-surface-container/20 rounded-3xl border border-outline/10 border-dashed">
+      <span class="material-symbols-outlined text-6xl text-primary/40 mb-4">book</span>
+      <h3 class="font-display font-bold text-lg text-on-surface">No notebooks found</h3>
+      <p class="text-xs text-on-surface-variant max-w-xs mt-1 mb-6">Create your first notebook to upload documents, generate outline trees, and chat with AI.</p>
+      <button id="empty-create-btn" class="py-2.5 px-6 bg-primary text-on-primary hover:bg-primary/95 text-xs font-semibold rounded-full shadow transition-all flex items-center gap-1.5">
+        <span class="material-symbols-outlined text-sm font-bold">add</span> Create First Notebook
+      </button>
+    </div>
+
+    <!-- Cards Grid -->
+    <div id="notebook-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      <!-- Create Card (Always first) -->
+      <div id="create-card-wrapper" class="h-64 border-2 border-dashed border-outline/25 hover:border-primary/50 bg-surface-container/25 hover:bg-surface-container/50 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-300 group hover:shadow-md">
+        <div class="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 text-primary flex items-center justify-center mb-3 group-hover:scale-110 transition-all duration-300">
+          <span class="material-symbols-outlined text-2xl font-bold">add</span>
+        </div>
+        <span class="text-sm font-bold text-on-surface group-hover:text-primary transition-colors">New Notebook</span>
+        <span class="text-[11px] text-on-surface-variant mt-1">Create a new workspace</span>
+      </div>
+
+      <!-- Dynamically Rendered Cards -->
+    </div>
+  </main>
+
+  <!-- Create Notebook Modal -->
+  <dialog id="create-dialog" class="rounded-2xl dashboard-modal p-6 w-full max-w-md focus:outline-none shadow-2xl backdrop:bg-black/60">
+    <div class="space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-display font-bold text-base text-on-surface">Create New Notebook</h3>
+        <button onclick="document.getElementById('create-dialog').close()" class="p-1 rounded-full hover:bg-outline/10 text-on-surface-variant">
+          <span class="material-symbols-outlined text-lg">close</span>
+        </button>
+      </div>
+      <div>
+        <label for="create-title-input" class="block text-[10px] font-semibold text-on-surface-variant mb-1 uppercase tracking-wider">Notebook Title</label>
+        <input type="text" id="create-title-input" placeholder="e.g. NVIDIA Financial Report Analysis" class="w-full text-xs rounded-xl bg-surface border border-outline/20 p-3 text-on-surface focus:outline-none focus:border-primary transition-colors">
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button onclick="document.getElementById('create-dialog').close()" class="px-4 py-2 text-xs font-semibold hover:bg-outline/10 rounded-xl text-on-surface-variant transition-colors">Cancel</button>
+        <button id="confirm-create-btn" class="px-4 py-2 bg-primary text-on-primary hover:bg-primary/95 text-xs font-semibold rounded-xl shadow transition-colors">Create</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Rename Notebook Modal -->
+  <dialog id="rename-dialog" class="rounded-2xl dashboard-modal p-6 w-full max-w-md focus:outline-none shadow-2xl backdrop:bg-black/60">
+    <div class="space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-display font-bold text-base text-on-surface">Rename Notebook</h3>
+        <button onclick="document.getElementById('rename-dialog').close()" class="p-1 rounded-full hover:bg-outline/10 text-on-surface-variant">
+          <span class="material-symbols-outlined text-lg">close</span>
+        </button>
+      </div>
+      <div>
+        <label for="rename-title-input" class="block text-[10px] font-semibold text-on-surface-variant mb-1 uppercase tracking-wider">New Title</label>
+        <input type="text" id="rename-title-input" class="w-full text-xs rounded-xl bg-surface border border-outline/20 p-3 text-on-surface focus:outline-none focus:border-primary transition-colors">
+      </div>
+      <input type="hidden" id="rename-id-input">
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button onclick="document.getElementById('rename-dialog').close()" class="px-4 py-2 text-xs font-semibold hover:bg-outline/10 rounded-xl text-on-surface-variant transition-colors">Cancel</button>
+        <button id="confirm-rename-btn" class="px-4 py-2 bg-primary text-on-primary hover:bg-primary/95 text-xs font-semibold rounded-xl shadow transition-colors">Rename</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Settings Dialog (copied structure and endpoints from index.html settings for seamless continuity) -->
+  <dialog id="settings-dialog" class="rounded-2xl dashboard-modal p-6 w-full max-w-md focus:outline-none shadow-2xl backdrop:bg-black/60">
+    <div class="space-y-4">
+      <div class="flex items-center justify-between border-b border-outline/10 pb-2">
+        <h3 class="font-display font-bold text-base text-on-surface flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary">settings</span> Application Settings
+        </h3>
+        <button onclick="document.getElementById('settings-dialog').close()" class="p-1 rounded-full hover:bg-outline/10 text-on-surface-variant">
+          <span class="material-symbols-outlined text-lg">close</span>
+        </button>
+      </div>
+
+      <!-- Chat LLM Section -->
+      <div class="space-y-2">
+        <h4 class="font-display font-bold text-xs tracking-wide text-primary flex items-center gap-1 uppercase select-none">
+          <span class="material-symbols-outlined text-sm">forum</span> Chat LLM Provider
+        </h4>
+        <div>
+          <label class="block text-[9px] font-semibold text-on-surface-variant mb-0.5">Provider Type</label>
+          <select id="settings-provider" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-2 text-on-surface focus:outline-none focus:border-primary">
+            <option value="ollama">Local Ollama</option>
+            <option value="xinference">Local Xinference</option>
+            <option value="openai">Standard OpenAI API</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[9px] font-semibold text-on-surface-variant mb-0.5">Model Name</label>
+          <input type="text" id="settings-model" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-2 text-on-surface focus:outline-none focus:border-primary">
+        </div>
+        <div id="api-base-container">
+          <label class="block text-[9px] font-semibold text-on-surface-variant mb-0.5">API Endpoint Base</label>
+          <input type="text" id="settings-base" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-2 text-on-surface focus:outline-none focus:border-primary">
+        </div>
+        <div id="api-key-container" class="hidden">
+          <label class="block text-[9px] font-semibold text-on-surface-variant mb-0.5">API Key</label>
+          <input type="password" id="settings-key" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-2 text-on-surface focus:outline-none focus:border-primary">
+        </div>
+        <button id="save-chat-btn" class="w-full py-2 bg-primary/95 text-on-primary hover:bg-primary text-xs font-semibold rounded-lg shadow transition-colors flex items-center justify-center gap-1">
+          <span class="material-symbols-outlined text-sm">save</span> Save Chat Settings
+        </button>
+      </div>
+
+      <!-- VLM Parser Section -->
+      <div class="border-t border-outline/10 pt-4 space-y-2">
+        <h4 class="font-display font-bold text-xs tracking-wide text-primary flex items-center gap-1 uppercase select-none">
+          <span class="material-symbols-outlined text-sm">visibility</span> VLM Parser (PDF/Vision)
+        </h4>
+        <div>
+          <label class="block text-[9px] font-semibold text-on-surface-variant mb-0.5">VLM Provider Type</label>
+          <select id="settings-vlm-provider" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-2 text-on-surface focus:outline-none focus:border-primary">
+            <option value="ollama">Local Ollama</option>
+            <option value="xinference">Local Xinference</option>
+            <option value="openai">Standard OpenAI API</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[9px] font-semibold text-on-surface-variant mb-0.5">VLM Model Name</label>
+          <input type="text" id="settings-vlm-model" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-2 text-on-surface focus:outline-none focus:border-primary">
+        </div>
+        <div id="vlm-api-base-container">
+          <label class="block text-[9px] font-semibold text-on-surface-variant mb-0.5">VLM API Endpoint Base</label>
+          <input type="text" id="settings-vlm-base" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-2 text-on-surface focus:outline-none focus:border-primary">
+        </div>
+        <div id="vlm-api-key-container" class="hidden">
+          <label class="block text-[9px] font-semibold text-on-surface-variant mb-0.5">VLM API Key</label>
+          <input type="password" id="settings-vlm-key" class="w-full text-xs rounded-lg bg-surface border border-outline/20 p-2 text-on-surface focus:outline-none focus:border-primary">
+        </div>
+        <button id="save-vlm-btn" class="w-full py-2 bg-primary/95 text-on-primary hover:bg-primary text-xs font-semibold rounded-lg shadow transition-colors flex items-center justify-center gap-1">
+          <span class="material-symbols-outlined text-sm">save</span> Save VLM Settings
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Script logic -->
+  <script src="dashboard.js"></script>
+</body>
+</html>

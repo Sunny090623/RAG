@@ -11,14 +11,11 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 
 from backend.parser import index_document
-from backend.shared import STORAGE_DIR
+from backend.shared import STORAGE_DIR, get_uploads_dir, notebook_id_var
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["upload"])
-
-UPLOADS_DIR = STORAGE_DIR / "uploads"
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # In-memory task tracking
 tasks_queue = asyncio.Queue()
@@ -36,9 +33,11 @@ async def task_worker():
                 tasks_queue.task_done()
                 continue
             
-            task["status"] = "processing"
-            file_path = UPLOADS_DIR / f"{task_id}_{task['filename']}"
+            notebook_id = task.get("notebook_id", "default")
+            token = notebook_id_var.set(notebook_id)
+            file_path = get_uploads_dir(notebook_id) / f"{task_id}_{task['filename']}"
             try:
+                task["status"] = "processing"
                 doc_id = await index_document(str(file_path))
                 task["status"] = "completed"
                 task["doc_id"] = doc_id
@@ -53,6 +52,7 @@ async def task_worker():
                     except:
                         pass
             finally:
+                notebook_id_var.reset(token)
                 tasks_queue.task_done()
         except asyncio.CancelledError:
             break
@@ -70,7 +70,8 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"Unsupported file format: {ext}")
         
     task_id = str(uuid.uuid4())
-    temp_path = UPLOADS_DIR / f"{task_id}_{file.filename}"
+    notebook_id = notebook_id_var.get()
+    temp_path = get_uploads_dir(notebook_id) / f"{task_id}_{file.filename}"
     try:
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -80,7 +81,8 @@ async def upload_file(file: UploadFile = File(...)):
             "filename": file.filename,
             "status": "pending",
             "error": None,
-            "doc_id": None
+            "doc_id": None,
+            "notebook_id": notebook_id
         }
         tasks_dict[task_id] = task
         tasks_list.append(task)

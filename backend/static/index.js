@@ -1,3 +1,39 @@
+// Extract notebook ID from URL path /workspace/{notebook_id}
+(function() {
+  const pathParts = window.location.pathname.split('/');
+  const notebookId = (pathParts[1] === 'workspace' && pathParts[2]) ? pathParts[2] : 'default';
+
+  // Wrap fetch to automatically append the X-Notebook-ID header
+  const originalFetch = window.fetch;
+  window.fetch = async function(resource, init) {
+    if (typeof resource === 'string' && resource.startsWith('/api/')) {
+      init = init || {};
+      init.headers = init.headers || {};
+      if (init.headers instanceof Headers) {
+        init.headers.set('X-Notebook-ID', notebookId);
+      } else {
+        init.headers['X-Notebook-ID'] = notebookId;
+      }
+    }
+    return originalFetch(resource, init);
+  };
+
+  // Wrap XMLHttpRequest to automatically append the X-Notebook-ID header
+  const originalOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, ...args) {
+    this._url = url;
+    return originalOpen.apply(this, [method, url, ...args]);
+  };
+
+  const originalSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function(...args) {
+    if (typeof this._url === 'string' && this._url.startsWith('/api/')) {
+      this.setRequestHeader('X-Notebook-ID', notebookId);
+    }
+    return originalSend.apply(this, args);
+  };
+})();
+
 // Frontend state variables
 let activeDocId = null;
 let activeDocType = 'pdf';
@@ -77,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupChatUI();
   setupSplitPanes();
   setupSelectAllUI();
-  
+
   // Tasks queue logic on startup
   pollTasks();
   startQueuePolling();
@@ -100,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial Status and Library fetch
   fetchStatus();
   fetchLibrary();
-  
+
   // Poll connection status every 15s
   setInterval(fetchStatus, 15000);
 });
@@ -115,7 +151,7 @@ function setupTheme() {
     document.documentElement.classList.remove('dark');
     themeToggle.innerHTML = '<span class="material-symbols-outlined">dark_mode</span>';
   }
-  
+
   themeToggle.addEventListener('click', () => {
     const isCurrentlyDark = document.documentElement.classList.contains('dark');
     if (isCurrentlyDark) {
@@ -176,30 +212,30 @@ async function fetchStatus() {
   try {
     const res = await fetch('/api/status');
     const data = await res.json();
-    
+
     // Update active settings UI if empty or initial load
     if (!settingsModel.value) {
       settingsProvider.value = data.active_provider.provider_type;
       settingsProvider.dispatchEvent(new Event('change'));
-      
+
       settingsModel.value = data.active_provider.model_name;
       settingsBase.value = data.active_provider.api_base || '';
       if (data.active_provider.api_key) {
         settingsKey.value = data.active_provider.api_key;
       }
-      
+
       // settingsUseVlm update removed
-      
+
       settingsVlmProvider.value = data.vlm_provider.provider_type || 'ollama';
       settingsVlmProvider.dispatchEvent(new Event('change'));
-      
+
       settingsVlmModel.value = data.vlm_provider.model_name || '';
       settingsVlmBase.value = data.vlm_provider.api_base || '';
       if (data.vlm_provider.api_key) {
         settingsVlmKey.value = data.vlm_provider.api_key;
       }
     }
-    
+
     // Update Ollama badge
     if (data.ollama.status === 'online') {
       statusOllama.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 text-green-500 font-medium border border-green-500/20";
@@ -229,21 +265,21 @@ async function fetchStatus() {
 async function saveChatSettings() {
   saveChatBtn.disabled = true;
   saveChatBtn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">sync</span> Saving...';
-  
+
   const payload = {
     provider_type: settingsProvider.value,
     model_name: settingsModel.value,
     api_base: settingsBase.value || null,
     api_key: settingsKey.value || null
   };
-  
+
   try {
     const res = await fetch('/api/settings/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    
+
     if (res.ok) {
       showToast("Chat settings saved and applied successfully!", "success");
       fetchStatus();
@@ -262,7 +298,7 @@ async function saveChatSettings() {
 async function saveVlmSettings() {
   saveVlmBtn.disabled = true;
   saveVlmBtn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">sync</span> Saving...';
-  
+
   const payload = {
     use_vlm: true,
     vlm_provider_type: settingsVlmProvider.value,
@@ -270,14 +306,14 @@ async function saveVlmSettings() {
     vlm_api_base: settingsVlmBase.value || null,
     vlm_api_key: settingsVlmKey.value || null
   };
-  
+
   try {
     const res = await fetch('/api/settings/vlm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    
+
     if (res.ok) {
       showToast("VLM settings saved and applied successfully!", "success");
       fetchStatus();
@@ -421,7 +457,7 @@ function handleUpload(file) {
       let err_msg = "Unknown error";
       try {
         err_msg = JSON.parse(xhr.responseText).detail || err_msg;
-      } catch (e) {}
+      } catch (e) { }
       if (statusText && progressBar) {
         statusText.textContent = 'Upload Failed';
         statusText.className = 'text-[9px] font-bold text-red-500 uppercase';
@@ -457,12 +493,12 @@ async function pollTasks() {
     const res = await fetch('/api/tasks');
     if (!res.ok) throw new Error("Failed to fetch tasks");
     const tasks = await res.json();
-    
+
     activeTasks = tasks;
     renderTasksQueue();
 
     const hasActive = tasks.some(t => t.status === 'pending' || t.status === 'processing');
-    
+
     let newCompletion = false;
     tasks.forEach(t => {
       if (t.status === 'completed' && !selectedChatDocIds.has(t.doc_id)) {
@@ -518,7 +554,7 @@ function renderTasksQueue() {
   taskQueueContainer.classList.remove('hidden');
 
   const tempElems = Array.from(tasksList.querySelectorAll('[id^="upload-temp-"]'));
-  
+
   let html = activeTasks.map(task => {
     let badgeClass = '';
     let statusLabel = '';
@@ -574,13 +610,13 @@ async function fetchLibrary() {
   try {
     const res = await fetch('/api/documents');
     documents = await res.json();
-    
+
     if (isLibraryInitialLoad && documents.length > 0) {
       isLibraryInitialLoad = false;
       documents.forEach(doc => selectedChatDocIds.add(doc.doc_id));
       selectDocument(documents[0].doc_id);
     }
-    
+
     renderLibrary();
   } catch (e) {
     console.error("Failed to query documents library", e);
@@ -590,7 +626,7 @@ async function fetchLibrary() {
 function renderLibrary() {
   const selectAllContainer = document.getElementById('select-all-container');
   const selectAllCheckbox = document.getElementById('select-all-checkbox');
-  
+
   if (documents.length === 0) {
     docList.innerHTML = '<div class="text-xs text-on-surface-variant/70 text-center py-6">No documents indexed yet. Upload one to get started!</div>';
     if (selectAllContainer) {
@@ -600,20 +636,20 @@ function renderLibrary() {
     updateChatHeader();
     return;
   }
-  
+
   if (selectAllContainer && selectAllCheckbox) {
     selectAllContainer.classList.remove('hidden');
     selectAllContainer.classList.add('flex');
     const allChecked = documents.every(doc => selectedChatDocIds.has(doc.doc_id));
     selectAllCheckbox.checked = allChecked;
   }
-  
+
   docList.innerHTML = documents.map(doc => {
     const isSelected = doc.doc_id === activeDocId;
     const activeClass = isSelected ? 'bg-primary/10 border-primary/40' : 'bg-surface border-outline/10 hover:bg-outline/5';
     const isChecked = selectedChatDocIds.has(doc.doc_id);
     const checkedAttr = isChecked ? 'checked' : '';
-    
+
     // Choose icon based on file type
     let icon = 'draft';
     const ext = doc.doc_name.split('.').pop().toLowerCase();
@@ -621,10 +657,10 @@ function renderLibrary() {
     else if (ext === 'docx') icon = 'description';
     else if (['png', 'jpg', 'jpeg'].includes(ext)) icon = 'image';
     else if (ext === 'md' || ext === 'markdown') icon = 'markdown';
-    
+
     const metricText = doc.page_count > 0 ? `${doc.page_count} pages` : `${doc.line_count} lines`;
     const docNameEscaped = doc.doc_name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-    
+
     return `
       <div onclick="selectDocument('${doc.doc_id}')" class="p-3 border rounded-xl flex items-center justify-between cursor-pointer transition-all duration-200 ${activeClass}">
         <div class="flex items-center gap-3 min-w-0 flex-1">
@@ -645,7 +681,7 @@ function renderLibrary() {
               <span class="material-symbols-outlined text-sm">edit</span> Rename
             </button>
             <button onclick="event.stopPropagation(); window.open('/api/documents/${doc.doc_id}/view', '_blank')" class="flex items-center gap-2 px-3 py-2 hover:bg-outline/10 text-on-surface text-left transition-colors font-medium">
-              <span class="material-symbols-outlined text-sm">open_in_new</span> View Original
+              <span class="material-symbols-outlined text-sm">open_in_new</span> Download
             </button>
             <hr class="border-outline/10 my-1">
             <button onclick="event.stopPropagation(); deleteDocument('${doc.doc_id}')" class="flex items-center gap-2 px-3 py-2 hover:bg-red-500/10 text-red-500 hover:text-red-600 text-left transition-colors font-medium">
@@ -656,7 +692,7 @@ function renderLibrary() {
       </div>
     `;
   }).join('');
-  
+
   updateChatHeader();
 }
 
@@ -664,7 +700,7 @@ async function deleteDocument(docId) {
   if (!confirm("Are you sure you want to delete this document from index? This will remove all structural caching and page visual assets.")) {
     return;
   }
-  
+
   try {
     const res = await fetch(`/api/documents/${docId}`, { method: 'DELETE' });
     if (res.ok) {
@@ -689,20 +725,20 @@ async function deleteDocument(docId) {
 async function selectDocument(docId) {
   activeDocId = docId;
   renderLibrary();
-  
+
   const doc = documents.find(d => d.doc_id === docId);
   if (!doc) return;
-  
+
   const treeTitle = document.getElementById('inspector-tree-title');
   if (treeTitle) {
     treeTitle.textContent = `STRUCTURE: ${doc.doc_name}`;
   }
-  
+
   activeDocType = doc.type;
-  
+
   // Fetch details and outline tree
   treeContainer.innerHTML = '<div class="text-xs text-on-surface-variant/80 text-center py-6"><span class="animate-spin inline-block mr-1">sync</span>Loading tree structure...</div>';
-  
+
   try {
     const res = await fetch(`/api/documents/${docId}`);
     const details = await res.json();
@@ -720,13 +756,13 @@ function renderTree(structure) {
     treeContainer.innerHTML = '<div class="text-on-surface-variant text-center py-4">No structure outlines found.</div>';
     return;
   }
-  
+
   function buildTreeNodeHTML(node) {
     const childrenList = node.children || node.nodes;
     const hasChildren = childrenList && childrenList.length > 0;
     const targetIdx = node.page !== undefined ? node.page : (node.start_index !== undefined ? node.start_index : (node.line_num !== undefined ? node.line_num : 1));
     const metricLabel = activeDocType === 'pdf' ? `p. ${targetIdx}` : `L ${targetIdx}`;
-    
+
     let html = `
       <div class="tree-node flex flex-col pl-2 border-l border-outline/10 ml-1 mt-1">
         <div class="flex items-center justify-between p-1.5 rounded-lg hover:bg-outline/10 group cursor-pointer transition-colors" onclick="event.stopPropagation(); inspectNode('${node.node_id}', ${targetIdx})">
@@ -741,7 +777,7 @@ function renderTree(structure) {
           <span class="text-[9px] font-bold text-on-surface-variant/80 shrink-0 bg-outline/10 border border-outline/15 px-1.5 py-0.5 rounded">${metricLabel}</span>
         </div>
     `;
-    
+
     if (hasChildren) {
       html += `<div class="node-children flex flex-col pl-2 mt-0.5 space-y-0.5">`;
       childrenList.forEach(child => {
@@ -749,11 +785,11 @@ function renderTree(structure) {
       });
       html += `</div>`;
     }
-    
+
     html += `</div>`;
     return html;
   }
-  
+
   let treeHTML = '';
   structure.forEach(node => {
     treeHTML += buildTreeNodeHTML(node);
@@ -764,7 +800,7 @@ function renderTree(structure) {
 function toggleNodeCollapse(btn) {
   const childrenContainer = btn.closest('.tree-node').querySelector('.node-children');
   const icon = btn.querySelector('.material-symbols-outlined');
-  
+
   if (childrenContainer.classList.contains('hidden')) {
     childrenContainer.classList.remove('hidden');
     icon.style.transform = 'rotate(0deg)';
@@ -793,7 +829,7 @@ function switchTab(tab) {
     tabImageContent.classList.add('hidden');
     tabTextContent.classList.remove('hidden');
   }
-  
+
   // Reload content
   if (activeDocId) {
     loadPageContent();
@@ -810,7 +846,7 @@ function clearPageDisplay() {
 function inspectPage(idx) {
   activePageNum = idx;
   activeNodeId = null; // Clear active node when page is manually selected or default
-  
+
   if (activeDocId) {
     loadPageContent();
   }
@@ -819,7 +855,7 @@ function inspectPage(idx) {
 function inspectNode(nodeId, pageNum) {
   activeNodeId = nodeId;
   activePageNum = pageNum;
-  
+
   if (activeDocId) {
     loadPageContent();
   }
@@ -828,19 +864,19 @@ function inspectNode(nodeId, pageNum) {
 async function loadPageContent() {
   imageViewerPlaceholder.classList.add('hidden');
   textViewerPlaceholder.classList.add('hidden');
-  
+
   // Load page image (only works for physical pdf pages or image uploads)
   const imagePageNum = activeDocType === 'pdf' ? activePageNum : 1;
   const imageApiUrl = `/api/documents/${activeDocId}/pages/${imagePageNum}/image`;
-  
+
   // Setup loading state
   pageImageDisplay.classList.add('hidden');
   pageTextDisplay.classList.add('hidden');
-  
+
   if (currentTab === 'image') {
     imageViewerPlaceholder.innerHTML = '<span class="animate-spin inline-block text-base mr-1">sync</span>Loading original page image...';
     imageViewerPlaceholder.classList.remove('hidden');
-    
+
     // Test if image exists first
     const testImg = new Image();
     testImg.onload = () => {
@@ -856,7 +892,7 @@ async function loadPageContent() {
   } else {
     textViewerPlaceholder.innerHTML = '<span class="animate-spin inline-block text-base mr-1">sync</span>Loading structured content...';
     textViewerPlaceholder.classList.remove('hidden');
-    
+
     try {
       let url;
       if (activeNodeId) {
@@ -871,7 +907,7 @@ async function loadPageContent() {
         pageTextDisplay.innerHTML = marked.parse(data.content || '');
         pageTextDisplay.classList.remove('hidden');
       } else {
-        textViewerPlaceholder.textContent = activeNodeId 
+        textViewerPlaceholder.textContent = activeNodeId
           ? `Content not found for section node ${activeNodeId}`
           : `Content not found at page/line index ${activePageNum}`;
         textViewerPlaceholder.classList.remove('hidden');
@@ -899,24 +935,24 @@ async function handleChatSubmit() {
     showToast("Please select at least one document from the library to chat.", "error");
     return;
   }
-  
+
   const query = chatInput.value.trim();
   if (!query) return;
-  
+
   // Clear input
   chatInput.value = '';
   chatInput.style.height = 'auto';
-  
+
   // Append user message
   appendMessage('user', query);
-  
+
   // Create AI message container for streaming
   const messageId = `ai-msg-${Date.now()}`;
   const bubbleContainer = appendAIStreamingMessageContainer(messageId);
   const statusContainer = bubbleContainer.querySelector('.reasoning-status-box');
   const deltaTextContainer = bubbleContainer.querySelector('.markdown-body');
   const citationsContainer = bubbleContainer.querySelector('.citations-box');
-  
+
   // Setup streaming POST payload
   const payload = {
     doc_ids: Array.from(selectedChatDocIds),
@@ -924,38 +960,38 @@ async function handleChatSubmit() {
     query: query,
     force_search: false
   };
-  
+
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    
+
     if (!response.ok) {
       throw new Error(`Server returned status code: ${response.status}`);
     }
-    
+
     // Read steam reader
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
     let accumulatedText = "";
-    
+
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      
+
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       // Retain last partial line
       buffer = lines.pop();
-      
+
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
           const data = JSON.parse(line);
-          
+
           if (data.type === 'status') {
             // Update reasoning steps
             appendReasoningStep(statusContainer, data.content);
@@ -979,7 +1015,7 @@ async function handleChatSubmit() {
         }
       }
     }
-    
+
   } catch (e) {
     loggerErrorBubble(messageId, `Chat execution failed: ${e.message}`);
   }
@@ -990,7 +1026,7 @@ function appendMessage(sender, text) {
   const icon = isAI ? 'chat' : 'person';
   const bgClass = isAI ? 'bg-surface-container' : 'bg-primary text-on-primary';
   const label = isAI ? 'AI ASSISTANT' : 'YOU';
-  
+
   const html = `
     <div class="flex items-start gap-4 chat-bubble">
       <div class="w-8 h-8 rounded-full ${isAI ? 'bg-primary/10 border border-primary/20' : 'bg-primary/20 border border-primary/40'} flex items-center justify-center shrink-0">
@@ -1058,7 +1094,7 @@ function loggerErrorBubble(messageId, errorMsg) {
   if (bubble) {
     const statusBox = bubble.querySelector('.reasoning-status-box');
     appendReasoningStep(statusBox, errorMsg, true);
-    
+
     const mdBody = bubble.querySelector('.markdown-body');
     mdBody.innerHTML = `<span class="text-red-500 font-semibold">${errorMsg}</span>`;
   }
@@ -1073,7 +1109,7 @@ function renderCitationsInText(text, sources) {
         sourceMap[src.citation_id] = src;
       }
     });
-    
+
     // Replace [1] with interactive pill for inspectSourceDocument
     text = text.replace(/\[(\d+)\]/g, (match, citationId) => {
       const src = sourceMap[citationId];
@@ -1103,12 +1139,12 @@ function renderCitationsFooter(container, sources, isFallback) {
     container.classList.add('hidden');
     return;
   }
-  
+
   container.classList.remove('hidden');
-  
+
   // Detect if these are web search sources or document sources
   const isWebSearch = isFallback && sources[0] && sources[0].url !== undefined;
-  
+
   if (isWebSearch) {
     // Web search fallback sources
     container.innerHTML = `
@@ -1148,7 +1184,7 @@ function showToast(message, type = "success") {
   const toastId = `toast-${Date.now()}`;
   const bgClass = type === 'success' ? 'bg-primary text-on-primary' : 'bg-error text-on-primary';
   const icon = type === 'success' ? 'check_circle' : 'error';
-  
+
   const html = `
     <div id="${toastId}" class="fixed bottom-6 right-6 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg ${bgClass} font-medium text-xs z-50 animate-bounce transition-all duration-300">
       <span class="material-symbols-outlined text-lg">${icon}</span>
@@ -1156,7 +1192,7 @@ function showToast(message, type = "success") {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', html);
-  
+
   setTimeout(() => {
     const element = document.getElementById(toastId);
     if (element) {
@@ -1195,19 +1231,19 @@ function setupSplitPanes() {
     leftSplitter.addEventListener('mousedown', (e) => {
       e.preventDefault();
       document.body.style.cursor = 'col-resize';
-      
+
       const startX = e.clientX;
       const startWidth = leftPanel.offsetWidth;
-      
+
       function onMouseMove(moveEvent) {
         const currentClientX = moveEvent.clientX;
         window.requestAnimationFrame(() => {
           const deltaX = currentClientX - startX;
           let newWidth = startWidth + deltaX;
-          
+
           if (newWidth < minLeftWidth) newWidth = minLeftWidth;
           if (newWidth > maxLeftWidth) newWidth = maxLeftWidth;
-          
+
           // Verify that center panel remains at least minCenterWidth
           const totalWidth = document.body.clientWidth;
           const rightWidth = inspectorPanel ? inspectorPanel.offsetWidth : 0;
@@ -1216,18 +1252,18 @@ function setupSplitPanes() {
             newWidth = totalWidth - rightWidth - minCenterWidth - 10;
             if (newWidth < minLeftWidth) newWidth = minLeftWidth;
           }
-          
+
           leftPanel.style.width = `${newWidth}px`;
           localStorage.setItem('split-left-width', newWidth);
         });
       }
-      
+
       function onMouseUp() {
         document.body.style.cursor = '';
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
       }
-      
+
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
     });
@@ -1238,19 +1274,19 @@ function setupSplitPanes() {
     rightSplitter.addEventListener('mousedown', (e) => {
       e.preventDefault();
       document.body.style.cursor = 'col-resize';
-      
+
       const startX = e.clientX;
       const startWidth = inspectorPanel.offsetWidth;
-      
+
       function onMouseMove(moveEvent) {
         const currentClientX = moveEvent.clientX;
         window.requestAnimationFrame(() => {
           const deltaX = startX - currentClientX;
           let newWidth = startWidth + deltaX;
-          
+
           if (newWidth < minRightWidth) newWidth = minRightWidth;
           if (newWidth > maxRightWidth) newWidth = maxRightWidth;
-          
+
           // Verify that center panel remains at least minCenterWidth
           const totalWidth = document.body.clientWidth;
           const leftWidth = leftPanel ? leftPanel.offsetWidth : 0;
@@ -1259,18 +1295,18 @@ function setupSplitPanes() {
             newWidth = totalWidth - leftWidth - minCenterWidth - 10;
             if (newWidth < minRightWidth) newWidth = minRightWidth;
           }
-          
+
           inspectorPanel.style.width = `${newWidth}px`;
           localStorage.setItem('split-right-width', newWidth);
         });
       }
-      
+
       function onMouseUp() {
         document.body.style.cursor = '';
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
       }
-      
+
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
     });
@@ -1299,7 +1335,7 @@ function setupSplitPanes() {
         window.requestAnimationFrame(() => {
           const deltaY = currentClientY - startY;
           let newHeight = startHeight + deltaY;
-          
+
           if (newHeight < minTreeHeight) newHeight = minTreeHeight;
           const maxTreeHeight = inspectorPanel.offsetHeight - 120;
           if (newHeight > maxTreeHeight) newHeight = maxTreeHeight;
@@ -1334,7 +1370,7 @@ function toggleChatDocument(docId) {
 function toggleSelectAll() {
   const selectAllCheckbox = document.getElementById('select-all-checkbox');
   if (!selectAllCheckbox) return;
-  
+
   const checked = selectAllCheckbox.checked;
   if (checked) {
     documents.forEach(doc => selectedChatDocIds.add(doc.doc_id));
@@ -1347,7 +1383,7 @@ function toggleSelectAll() {
 function setupSelectAllUI() {
   const selectAllContainer = document.getElementById('select-all-container');
   const selectAllCheckbox = document.getElementById('select-all-checkbox');
-  
+
   if (selectAllContainer && selectAllCheckbox) {
     selectAllContainer.addEventListener('click', (e) => {
       if (e.target !== selectAllCheckbox) {
@@ -1362,9 +1398,9 @@ function updateChatHeader() {
   const activeDocIcon = document.getElementById('active-doc-icon');
   const activeDocTitle = document.getElementById('active-doc-title');
   const activeDocPages = document.getElementById('active-doc-pages');
-  
+
   if (!activeDocIcon || !activeDocTitle || !activeDocPages) return;
-  
+
   const selectedCount = selectedChatDocIds.size;
   if (selectedCount === 0) {
     activeDocIcon.textContent = 'chat_bubble_outline';
@@ -1380,7 +1416,7 @@ function updateChatHeader() {
       else if (ext === 'docx') icon = 'description';
       else if (['png', 'jpg', 'jpeg'].includes(ext)) icon = 'image';
       else if (ext === 'md' || ext === 'markdown') icon = 'markdown';
-      
+
       activeDocIcon.textContent = icon;
       activeDocTitle.textContent = doc.doc_name;
       activeDocPages.textContent = doc.page_count > 0 ? `(${doc.page_count} pages)` : `(${doc.line_count} lines)`;
@@ -1388,7 +1424,7 @@ function updateChatHeader() {
   } else {
     activeDocIcon.textContent = 'question_answer';
     activeDocTitle.textContent = `Chatting with ${selectedCount} documents`;
-    
+
     let totalPages = 0;
     let totalLines = 0;
     selectedChatDocIds.forEach(id => {
@@ -1398,7 +1434,7 @@ function updateChatHeader() {
         else totalLines += doc.line_count;
       }
     });
-    
+
     if (totalPages > 0) {
       activeDocPages.textContent = `(${totalPages} pages total)`;
     } else {
@@ -1432,7 +1468,7 @@ function toggleDocActionsMenu(event, docId) {
   const menu = document.getElementById(`actions-menu-${docId}`);
   if (menu) {
     menu.classList.toggle('hidden');
-    
+
     if (!menu.classList.contains('hidden')) {
       const hideMenu = () => {
         menu.classList.add('hidden');
@@ -1451,22 +1487,22 @@ async function renameDocumentPrompt(docId, oldName) {
 
   const newName = prompt("Enter new display name for the document:", oldName);
   if (newName === null) return;
-  
+
   const trimmed = newName.trim();
   if (!trimmed) {
     showToast("Document name cannot be empty.", "error");
     return;
   }
-  
+
   if (trimmed === oldName) return;
-  
+
   try {
     const res = await fetch(`/api/documents/${docId}/rename`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ new_name: trimmed })
     });
-    
+
     if (res.ok) {
       showToast("Document renamed successfully.", "success");
       await fetchLibrary();
