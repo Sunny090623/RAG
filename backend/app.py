@@ -29,6 +29,7 @@ from backend.routes.upload import router as upload_router, task_worker
 from backend.routes.documents import router as documents_router
 from backend.routes.chat import router as chat_router
 from backend.routes.notebooks import router as notebooks_router
+from backend.routes.conversations import router as conversations_router
 from backend.shared import notebook_id_var
 
 # Logging
@@ -75,6 +76,7 @@ app.include_router(upload_router)
 app.include_router(documents_router)
 app.include_router(chat_router)
 app.include_router(notebooks_router)
+app.include_router(conversations_router)
 
 # Request context middleware for Notebook ID
 @app.middleware("http")

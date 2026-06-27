@@ -40,13 +40,25 @@ def load_notebooks_list() -> List[dict]:
             "title": "Default Notebook",
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "active_conversation_id": "default-conv"
         }
         save_notebooks_list([default_nb])
         return [default_nb]
     
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            notebooks = json.load(f)
+            modified = False
+            for nb in notebooks:
+                if "active_conversation_id" not in nb:
+                    if nb["id"] == "default":
+                        nb["active_conversation_id"] = "default-conv"
+                    else:
+                        nb["active_conversation_id"] = str(uuid.uuid4())
+                    modified = True
+            if modified:
+                save_notebooks_list(notebooks)
+            return notebooks
     except Exception as e:
         logger.error(f"Failed to load notebooks list: {e}")
         return []
@@ -105,11 +117,12 @@ async def create_notebook(payload: CreateNotebookPayload):
         "title": title,
         "created_at": now,
         "updated_at": now,
+        "active_conversation_id": str(uuid.uuid4())
     }
     
     # Pre-create directory structures
     try:
-        for subdir in ["workspace", "images", "uploads"]:
+        for subdir in ["workspace", "images", "uploads", "conversations"]:
             path = STORAGE_DIR / "notebooks" / nid / subdir
             path.mkdir(parents=True, exist_ok=True)
     except Exception as e:
@@ -151,12 +164,14 @@ async def duplicate_notebook(notebook_id: str):
         raise HTTPException(status_code=404, detail="Notebook not found")
         
     new_id = str(uuid.uuid4())
+    new_conv_id = str(uuid.uuid4())
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     new_nb = {
         "id": new_id,
         "title": f"Copy of {source_nb['title']}",
         "created_at": now,
         "updated_at": now,
+        "active_conversation_id": new_conv_id
     }
     
     # Paths resolve
@@ -181,6 +196,22 @@ async def duplicate_notebook(notebook_id: str):
             dst_path.mkdir(parents=True, exist_ok=True)
             if src_path.exists():
                 shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
+                
+        # Duplicate the conversation history file if exists
+        if notebook_id == "default":
+            src_conv_dir = STORAGE_DIR / "conversations"
+        else:
+            src_conv_dir = STORAGE_DIR / "notebooks" / notebook_id / "conversations"
+            
+        src_conv_file = src_conv_dir / f"{source_nb.get('active_conversation_id')}.json"
+        
+        dst_conv_dir = STORAGE_DIR / "notebooks" / new_id / "conversations"
+        dst_conv_dir.mkdir(parents=True, exist_ok=True)
+        dst_conv_file = dst_conv_dir / f"{new_conv_id}.json"
+        
+        if src_conv_file.exists():
+            shutil.copy2(src_conv_file, dst_conv_file)
+            
     except Exception as e:
         logger.error(f"Failed to duplicate notebook files from {notebook_id} to {new_id}: {e}", exc_info=True)
         if dst_base.exists():

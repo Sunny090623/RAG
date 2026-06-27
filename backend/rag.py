@@ -11,12 +11,15 @@ from pageindex.utils import extract_json, remove_fields
 
 logger = logging.getLogger(__name__)
 
-async def run_llm_query(prompt, system_prompt=None):
+async def run_llm_query(prompt, system_prompt=None, history=None):
     """Utility to run standard completions using active patched litellm."""
     provider = get_active_provider()
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
+    if history:
+        for m in history:
+            messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": prompt})
     
     response = await litellm.acompletion(
@@ -26,12 +29,15 @@ async def run_llm_query(prompt, system_prompt=None):
     )
     return response.choices[0].message.content
 
-async def run_llm_query_stream(prompt, system_prompt=None):
+async def run_llm_query_stream(prompt, system_prompt=None, history=None):
     """Utility to stream completions using active patched litellm."""
     provider = get_active_provider()
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
+    if history:
+        for m in history:
+            messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": prompt})
     
     try:
@@ -50,7 +56,7 @@ async def run_llm_query_stream(prompt, system_prompt=None):
 
 # find_node_by_id is imported from backend.utils
 
-async def route_query_to_nodes(doc_id, query, doc_type, structure):
+async def route_query_to_nodes(doc_id, query, doc_type, structure, history=None):
     """Step 1: Read outline tree and use LLM to decide relevant node IDs."""
     structure_routing = remove_fields(structure, fields=['text', 'prefix_summary'])
     structure_json = json.dumps(structure_routing, ensure_ascii=False, indent=2)
@@ -77,7 +83,7 @@ Response Format (return ONLY valid JSON, no markdown block, no explanation):
 }}
 """
     try:
-        raw_response = await run_llm_query(prompt)
+        raw_response = await run_llm_query(prompt, history=history)
         res_json = extract_json(raw_response)
         node_ids = res_json.get("node_ids", [])
         if isinstance(node_ids, str) and node_ids == "none":
@@ -88,7 +94,7 @@ Response Format (return ONLY valid JSON, no markdown block, no explanation):
         logger.error(f"Error routing query to nodes: {e}", exc_info=True)
         return []
 
-async def check_sufficiency_and_answer(query, context, pages_str):
+async def check_sufficiency_and_answer(query, context, pages_str, history=None):
     """Step 2: Check context sufficiency and attempt to answer the user query."""
     prompt = f"""You are a context checking and Q&A assistant.
 Check if the provided document context contains enough information to fully and accurately answer the user query.
@@ -113,7 +119,7 @@ Response Format (return ONLY valid JSON, no markdown block, no explanation):
 }}
 """
     try:
-        raw_response = await run_llm_query(prompt)
+        raw_response = await run_llm_query(prompt, history=history)
         res_json = extract_json(raw_response)
         return res_json
     except Exception as e:
@@ -178,6 +184,15 @@ async def execute_rag_flow_stream(doc_ids, query, force_search=False):
     logger.info(f"RAG query: {query!r} for doc_ids: {doc_ids!r}")
     client = get_document_client()
     
+    # Load conversation history for conversational context (recent 10 messages / 5 turns)
+    from backend.routes.conversations import get_active_conversation_id, load_conversation_messages
+    from backend.shared import notebook_id_var
+    
+    notebook_id = notebook_id_var.get()
+    conversation_id = get_active_conversation_id(notebook_id)
+    history_messages = load_conversation_messages(notebook_id, conversation_id)
+    recent_history = history_messages[-10:] if history_messages else []
+    
     valid_docs = []
     for d in doc_ids:
         doc_info = client.documents.get(d)
@@ -202,7 +217,7 @@ async def execute_rag_flow_stream(doc_ids, query, force_search=False):
         doc_type = doc_info.get("type", "pdf")
         doc_name = doc_info.get("doc_name", "document")
         
-        node_ids = await route_query_to_nodes(doc_id, query, doc_type, structure)
+        node_ids = await route_query_to_nodes(doc_id, query, doc_type, structure, history=recent_history)
         if node_ids:
             node_texts = []
             for node_id in node_ids:
@@ -246,7 +261,7 @@ async def execute_rag_flow_stream(doc_ids, query, force_search=False):
                 
     if matched_any and combined_context:
         yield json.dumps({"type": "status", "content": "Evaluating context sufficiency across selected documents..."}) + "\n"
-        check_res = await check_sufficiency_and_answer(query, combined_context, "selected pages")
+        check_res = await check_sufficiency_and_answer(query, combined_context, "selected pages", history=recent_history)
         logger.info(f"Sufficiency check result: {check_res}")
         
         sufficient_val = check_res.get("sufficient") if isinstance(check_res, dict) else False
@@ -269,7 +284,7 @@ Document Contexts:
 User Query:
 {query}
 """
-            async for token in run_llm_query_stream(prompt):
+            async for token in run_llm_query_stream(prompt, history=recent_history):
                 yield json.dumps({"type": "delta", "content": token}) + "\n"
                 
             yield json.dumps({"type": "result", "answer": "", "sources": pages_inspected, "fallback": False, "pages_inspected": pages_inspected}) + "\n"
@@ -303,7 +318,7 @@ Document Context:
 User Query:
 {query}
 """
-        async for token in run_llm_query_stream(prompt):
+        async for token in run_llm_query_stream(prompt, history=recent_history):
             yield json.dumps({"type": "delta", "content": token}) + "\n"
             
         yield json.dumps({"type": "result", "answer": "", "sources": pages_inspected, "fallback": True, "pages_inspected": pages_inspected}) + "\n"

@@ -64,8 +64,9 @@ IMAGES_DIR = STORAGE_DIR / "images"
 UPLOADS_DIR = STORAGE_DIR / "uploads"
 NOTEBOOKS_DIR = STORAGE_DIR / "notebooks"
 CACHE_DIR = STORAGE_DIR / "cache"
+DEFAULT_CONVS_DIR = STORAGE_DIR / "conversations"
 
-for d in [STORAGE_DIR, WORKSPACE_DIR, IMAGES_DIR, UPLOADS_DIR, NOTEBOOKS_DIR, CACHE_DIR]:
+for d in [STORAGE_DIR, WORKSPACE_DIR, IMAGES_DIR, UPLOADS_DIR, NOTEBOOKS_DIR, CACHE_DIR, DEFAULT_CONVS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # Cache dictionary of PageIndexClient registry instances keyed by notebook ID

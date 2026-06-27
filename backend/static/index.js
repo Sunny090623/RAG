@@ -136,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial Status and Library fetch
   fetchStatus();
   fetchLibrary();
+  loadChatHistory();
 
   // Poll connection status every 15s
   setInterval(fetchStatus, 15000);
@@ -1019,6 +1020,98 @@ async function handleChatSubmit() {
   } catch (e) {
     loggerErrorBubble(messageId, `Chat execution failed: ${e.message}`);
   }
+}
+
+// ── Chat History Loading and Rendering ──────────────────────────────────────
+async function loadChatHistory() {
+  try {
+    const res = await fetch('/api/conversations/active');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && data.messages) {
+      renderChatHistory(data.messages);
+    }
+  } catch (e) {
+    console.error("Failed to load chat history:", e);
+  }
+}
+
+function renderChatHistory(messages) {
+  chatMessages.innerHTML = `
+    <!-- Default Greeting -->
+    <div class="flex items-start gap-4">
+      <div class="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+        <span class="material-symbols-outlined text-primary text-lg">chat</span>
+      </div>
+      <div class="space-y-1 max-w-[80%]">
+        <div class="text-[10px] text-on-surface-variant font-bold tracking-wider">AI ASSISTANT</div>
+        <div class="p-4 rounded-2xl bg-surface-container text-sm leading-relaxed shadow-sm">
+          Hello! Please select a document from the left library or upload a new one. Once a document is selected, you can ask questions and I will query its outline tree, retrieve precise pages, and answer based on the document's content.
+        </div>
+      </div>
+    </div>
+  `;
+  
+  if (!messages || messages.length === 0) {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return;
+  }
+  
+  messages.forEach(msg => {
+    if (msg.role === 'user') {
+      appendMessage('user', msg.content);
+    } else if (msg.role === 'assistant') {
+      const messageId = `ai-msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const html = `
+        <div class="flex items-start gap-4 chat-bubble" id="${messageId}">
+          <div class="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-primary text-lg">chat</span>
+          </div>
+          <div class="space-y-2 max-w-[80%] flex-1">
+            <div class="text-[10px] text-on-surface-variant font-bold tracking-wider">AI ASSISTANT</div>
+            
+            <!-- Reasoning steps logs box -->
+            <div class="reasoning-status-box flex flex-col gap-1.5 p-3 rounded-xl bg-outline/5 border border-outline/10 text-[11px] font-medium text-on-surface-variant hidden">
+            </div>
+            
+            <!-- content -->
+            <div class="p-4 rounded-2xl bg-surface-container text-sm leading-relaxed shadow-sm">
+              <div class="markdown-body prose dark:prose-invert text-sm max-w-none text-on-surface">
+              </div>
+              
+              <!-- Citations list footer -->
+              <div class="citations-box flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-outline/10 hidden">
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      chatMessages.insertAdjacentHTML('beforeend', html);
+      const bubble = document.getElementById(messageId);
+      const statusContainer = bubble.querySelector('.reasoning-status-box');
+      const deltaTextContainer = bubble.querySelector('.markdown-body');
+      const citationsContainer = bubble.querySelector('.citations-box');
+      
+      // Render status steps if present
+      if (msg.status_steps && msg.status_steps.length > 0) {
+        msg.status_steps.forEach(step => {
+          appendReasoningStep(statusContainer, step);
+        });
+      }
+      
+      // Render text and citations
+      if (msg.content) {
+        deltaTextContainer.innerHTML = renderCitationsInText(msg.content, msg.sources);
+      }
+      
+      // Render citations footer if present
+      if (msg.sources && msg.sources.length > 0) {
+        renderCitationsFooter(citationsContainer, msg.sources, msg.fallback);
+      }
+    }
+  });
+  
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function appendMessage(sender, text) {
