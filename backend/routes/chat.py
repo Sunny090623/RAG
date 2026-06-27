@@ -13,15 +13,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from backend.rag import execute_rag_flow_stream
-from backend.shared import notebook_id_var
+from backend.shared import notebook_id_var, active_chat_signals
 from backend.routes.conversations import append_messages_to_active
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
-# Global map of active session_id -> asyncio.Event
-active_chat_signals = {}
 
 
 class ChatPayload(BaseModel):

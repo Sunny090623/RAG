@@ -81,3 +81,8 @@ def get_shared_client(notebook_id: str = None) -> PageIndexClient:
         ws_dir = get_workspace_dir(notebook_id)
         _clients[notebook_id] = PageIndexClient(workspace=str(ws_dir))
     return _clients[notebook_id]
+
+# Global map of active session_id -> asyncio.Event for chat cancellation.
+# Lives here (rather than in routes/chat.py) so that rag.py can import it
+# without creating a circular dependency (chat.py -> rag.py -> chat.py).
+active_chat_signals: dict = {}
