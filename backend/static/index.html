@@ -223,11 +223,17 @@
       
       <!-- Middle Panel Header -->
       <div class="h-14 border-b border-outline/10 flex items-center justify-between px-6 shrink-0 bg-surface/50 backdrop-blur">
-        <div class="flex items-center gap-2">
-          <span class="material-symbols-outlined text-primary" id="active-doc-icon">draft</span>
-          <h2 class="font-display font-bold text-sm tracking-wide text-on-surface" id="active-doc-title">Select a Document to Chat</h2>
+        <div class="flex items-center gap-2 flex-1 min-w-0">
+          <span class="material-symbols-outlined text-primary shrink-0" id="active-doc-icon">draft</span>
+          <h2 class="font-display font-bold text-sm tracking-wide text-on-surface truncate" id="active-doc-title">Select a Document to Chat</h2>
         </div>
-        <div id="active-doc-pages" class="text-xs text-on-surface-variant font-medium"></div>
+        <div class="flex items-center gap-3 shrink-0 ml-4">
+          <div id="active-doc-pages" class="text-xs text-on-surface-variant font-medium"></div>
+          <button id="clear-chat-history-btn" class="flex items-center gap-1 text-[11px] font-bold text-on-surface-variant/80 hover:text-red-500 transition-colors uppercase bg-outline/5 px-2.5 py-1 rounded-lg border border-outline/10 hover:bg-outline/10 hidden" title="Clear Chat History">
+            <span class="material-symbols-outlined text-xs shrink-0">delete_sweep</span>
+            <span>Clear Chat</span>
+          </button>
+        </div>
       </div>
       
       <!-- Chat bubbles log -->

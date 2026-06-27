@@ -3,6 +3,7 @@ import json
 import logging
 import litellm
 import asyncio
+import time
 
 from backend.provider import get_active_provider
 from backend.shared import get_shared_client as get_document_client
@@ -48,11 +49,32 @@ async def run_llm_query_stream(prompt, system_prompt=None, history=None):
             stream=True
         )
         async for chunk in response:
+            content = None
             if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+                content = chunk.choices[0].delta.content
+                
+            metadata = None
+            try:
+                if hasattr(chunk, "model_dump"):
+                    chunk_dict = chunk.model_dump()
+                else:
+                    chunk_dict = dict(chunk)
+                
+                if chunk_dict.get("usage"):
+                    metadata = {"usage": chunk_dict["usage"]}
+                elif chunk_dict.get("_response_metadata"):
+                    metadata = chunk_dict["_response_metadata"]
+                elif hasattr(chunk, "_response_metadata") and getattr(chunk, "_response_metadata"):
+                    metadata = getattr(chunk, "_response_metadata")
+            except Exception:
+                pass
+                
+            if content is not None or metadata is not None:
+                yield {"content": content, "metadata": metadata}
+                
     except Exception as e:
         logger.error(f"Streaming LLM call failed: {e}", exc_info=True)
-        yield f"\n[Generation Error: {e}]"
+        yield {"content": f"\n[Generation Error: {e}]", "metadata": None}
 
 # find_node_by_id is imported from backend.utils
 
@@ -176,12 +198,12 @@ def get_document_fallback_context(doc_id: str, client) -> str:
     return "\n".join(summaries)
 
 # Generator-based Streaming RAG Flow
-async def execute_rag_flow_stream(doc_ids, query, force_search=False):
+async def execute_rag_flow_stream(doc_ids, query, force_search=False, session_id=None):
     """Streams status updates and generated response tokens across multiple documents."""
     if isinstance(doc_ids, str):
         doc_ids = [doc_ids]
         
-    logger.info(f"RAG query: {query!r} for doc_ids: {doc_ids!r}")
+    logger.info(f"RAG query: {query!r} for doc_ids: {doc_ids!r} (session: {session_id})")
     client = get_document_client()
     
     # Load conversation history for conversational context (recent 10 messages / 5 turns)
@@ -259,6 +281,14 @@ async def execute_rag_flow_stream(doc_ids, query, force_search=False):
                 combined_context += doc_context
                 matched_any = True
                 
+    # Answering block variables
+    provider = get_active_provider()
+    prompt = ""
+    accumulated_answer = ""
+    start_time = time.time()
+    first_token_time = None
+    ollama_stats = None
+    
     if matched_any and combined_context:
         yield json.dumps({"type": "status", "content": "Evaluating context sufficiency across selected documents..."}) + "\n"
         check_res = await check_sufficiency_and_answer(query, combined_context, "selected pages", history=recent_history)
@@ -284,10 +314,72 @@ Document Contexts:
 User Query:
 {query}
 """
-            async for token in run_llm_query_stream(prompt, history=recent_history):
-                yield json.dumps({"type": "delta", "content": token}) + "\n"
+            start_time = time.time()
+            async for chunk in run_llm_query_stream(prompt, history=recent_history):
+                # Check cancellation event
+                from backend.routes.chat import active_chat_signals
+                if session_id and active_chat_signals.get(session_id) and active_chat_signals[session_id].is_set():
+                    logger.info(f"Stop signal received for session {session_id}")
+                    break
+                    
+                token = chunk.get("content")
+                if token:
+                    if first_token_time is None:
+                        first_token_time = time.time()
+                    accumulated_answer += token
+                    yield json.dumps({"type": "delta", "content": token}) + "\n"
+                    
+                meta = chunk.get("metadata")
+                if meta:
+                    if "prompt_eval_count" in meta or "eval_count" in meta:
+                        ollama_stats = meta
+                    elif "usage" in meta and isinstance(meta["usage"], dict):
+                        ollama_stats = meta["usage"]
+                        
+            end_time = time.time()
+            duration_sec = end_time - start_time
+            ttft_sec = first_token_time - start_time if first_token_time else None
+            
+            # Count tokens
+            try:
+                from pageindex.utils import count_tokens
+                prompt_tokens = count_tokens(prompt, model=provider.model_name)
+                if recent_history:
+                    for m in recent_history:
+                        prompt_tokens += count_tokens(m["content"], model=provider.model_name)
+                completion_tokens = count_tokens(accumulated_answer, model=provider.model_name)
+            except Exception:
+                prompt_tokens = len(prompt) // 4
+                completion_tokens = len(accumulated_answer) // 4
                 
-            yield json.dumps({"type": "result", "answer": "", "sources": pages_inspected, "fallback": False, "pages_inspected": pages_inspected}) + "\n"
+            stats = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+                "generation_time_sec": round(duration_sec, 2),
+                "speed_tok_per_sec": round(completion_tokens / duration_sec, 1) if duration_sec > 0 else 0,
+                "time_to_first_token_sec": round(ttft_sec, 2) if ttft_sec else None,
+                "stopped_by_user": session_id in active_chat_signals and active_chat_signals[session_id].is_set()
+            }
+            
+            # Map native Ollama stats
+            if ollama_stats:
+                p_tokens = ollama_stats.get("prompt_eval_count") or ollama_stats.get("prompt_tokens")
+                c_tokens = ollama_stats.get("eval_count") or ollama_stats.get("completion_tokens")
+                if p_tokens is not None:
+                    stats["prompt_tokens"] = p_tokens
+                if c_tokens is not None:
+                    stats["completion_tokens"] = c_tokens
+                stats["total_tokens"] = stats["prompt_tokens"] + stats["completion_tokens"]
+                
+                eval_dur_ns = ollama_stats.get("eval_duration")
+                if eval_dur_ns:
+                    eval_dur_sec = eval_dur_ns / 1e9
+                    stats["generation_time_sec"] = round(eval_dur_sec, 2)
+                    if eval_dur_sec > 0:
+                        stats["speed_tok_per_sec"] = round(stats["completion_tokens"] / eval_dur_sec, 1)
+                        
+            yield json.dumps({"type": "result", "answer": "", "sources": pages_inspected, "fallback": False, "pages_inspected": pages_inspected, "stats": stats}) + "\n"
             return
         else:
             fallback_active = True
@@ -318,8 +410,70 @@ Document Context:
 User Query:
 {query}
 """
-        async for token in run_llm_query_stream(prompt, history=recent_history):
-            yield json.dumps({"type": "delta", "content": token}) + "\n"
+        start_time = time.time()
+        async for chunk in run_llm_query_stream(prompt, history=recent_history):
+            # Check cancellation event
+            from backend.routes.chat import active_chat_signals
+            if session_id and active_chat_signals.get(session_id) and active_chat_signals[session_id].is_set():
+                logger.info(f"Stop signal received for session {session_id}")
+                break
+                
+            token = chunk.get("content")
+            if token:
+                if first_token_time is None:
+                    first_token_time = time.time()
+                accumulated_answer += token
+                yield json.dumps({"type": "delta", "content": token}) + "\n"
+                
+            meta = chunk.get("metadata")
+            if meta:
+                if "prompt_eval_count" in meta or "eval_count" in meta:
+                    ollama_stats = meta
+                elif "usage" in meta and isinstance(meta["usage"], dict):
+                    ollama_stats = meta["usage"]
+                    
+        end_time = time.time()
+        duration_sec = end_time - start_time
+        ttft_sec = first_token_time - start_time if first_token_time else None
+        
+        # Count tokens
+        try:
+            from pageindex.utils import count_tokens
+            prompt_tokens = count_tokens(prompt, model=provider.model_name)
+            if recent_history:
+                for m in recent_history:
+                    prompt_tokens += count_tokens(m["content"], model=provider.model_name)
+            completion_tokens = count_tokens(accumulated_answer, model=provider.model_name)
+        except Exception:
+            prompt_tokens = len(prompt) // 4
+            completion_tokens = len(accumulated_answer) // 4
             
-        yield json.dumps({"type": "result", "answer": "", "sources": pages_inspected, "fallback": True, "pages_inspected": pages_inspected}) + "\n"
+        stats = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "generation_time_sec": round(duration_sec, 2),
+            "speed_tok_per_sec": round(completion_tokens / duration_sec, 1) if duration_sec > 0 else 0,
+            "time_to_first_token_sec": round(ttft_sec, 2) if ttft_sec else None,
+            "stopped_by_user": session_id in active_chat_signals and active_chat_signals[session_id].is_set()
+        }
+        
+        # Map native Ollama stats
+        if ollama_stats:
+            p_tokens = ollama_stats.get("prompt_eval_count") or ollama_stats.get("prompt_tokens")
+            c_tokens = ollama_stats.get("eval_count") or ollama_stats.get("completion_tokens")
+            if p_tokens is not None:
+                stats["prompt_tokens"] = p_tokens
+            if c_tokens is not None:
+                stats["completion_tokens"] = c_tokens
+            stats["total_tokens"] = stats["prompt_tokens"] + stats["completion_tokens"]
+            
+            eval_dur_ns = ollama_stats.get("eval_duration")
+            if eval_dur_ns:
+                eval_dur_sec = eval_dur_ns / 1e9
+                stats["generation_time_sec"] = round(eval_dur_sec, 2)
+                if eval_dur_sec > 0:
+                    stats["speed_tok_per_sec"] = round(stats["completion_tokens"] / eval_dur_sec, 1)
+                    
+        yield json.dumps({"type": "result", "answer": "", "sources": pages_inspected, "fallback": True, "pages_inspected": pages_inspected, "stats": stats}) + "\n"
         return

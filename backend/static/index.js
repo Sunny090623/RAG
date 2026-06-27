@@ -43,6 +43,8 @@ let currentTab = 'image'; // 'image' or 'text'
 let documents = [];
 const selectedChatDocIds = new Set();
 let isLibraryInitialLoad = true;
+let activeAbortController = null;
+let activeSessionId = null;
 
 // DOM Elements
 const themeToggle = document.getElementById('theme-toggle');
@@ -922,13 +924,76 @@ async function loadPageContent() {
 
 // ── Agentic Chat UI & Streaming ─────────────────────────────────────────────
 function setupChatUI() {
-  sendBtn.addEventListener('click', handleChatSubmit);
+  sendBtn.addEventListener('click', handleSendBtnClick);
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleChatSubmit();
+      if (!activeSessionId) {
+        handleChatSubmit();
+      }
     }
   });
+
+  const clearChatHistoryBtn = document.getElementById('clear-chat-history-btn');
+  if (clearChatHistoryBtn) {
+    clearChatHistoryBtn.addEventListener('click', handleClearChatHistory);
+  }
+}
+
+async function handleClearChatHistory() {
+  if (!confirm("Are you sure you want to clear the chat history for this notebook? This action cannot be undone.")) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/conversations/active/clear', {
+      method: 'POST'
+    });
+    if (res.ok) {
+      showToast("Chat history cleared successfully.", "success");
+      renderChatHistory([]);
+    } else {
+      showToast("Failed to clear chat history.", "error");
+    }
+  } catch (e) {
+    showToast(`Error clearing chat history: ${e.message}`, "error");
+  }
+}
+
+async function handleSendBtnClick() {
+  if (activeSessionId) {
+    // Stop clicked! Send graceful stop request
+    const sessionIdToStop = activeSessionId;
+    
+    // Switch UI state back early to feel responsive
+    setChatGeneratingState(false);
+    
+    try {
+      await fetch(`/api/chat/stop?session_id=${sessionIdToStop}`, { method: 'POST' });
+    } catch (e) {
+      console.error("Failed to send stop signal:", e);
+    }
+    
+    // Set a hard timeout fallback in case the connection hangs
+    setTimeout(() => {
+      if (activeAbortController) {
+        activeAbortController.abort();
+      }
+    }, 500);
+    
+  } else {
+    handleChatSubmit();
+  }
+}
+
+function setChatGeneratingState(generating) {
+  if (generating) {
+    sendBtn.innerHTML = `<span class="material-symbols-outlined text-lg">stop</span>`;
+    sendBtn.title = "Stop Generating";
+  } else {
+    sendBtn.innerHTML = `<span class="material-symbols-outlined text-lg">send</span>`;
+    sendBtn.title = "Send Message";
+  }
 }
 
 async function handleChatSubmit() {
@@ -940,9 +1005,16 @@ async function handleChatSubmit() {
   const query = chatInput.value.trim();
   if (!query) return;
 
-  // Clear input
+  // Clear input for draft typing (clear immediately on submit)
   chatInput.value = '';
   chatInput.style.height = 'auto';
+
+  // Generate unique session ID and AbortController
+  activeSessionId = 'session-' + Math.random().toString(36).substring(2, 10) + '-' + Date.now();
+  activeAbortController = new AbortController();
+  
+  // Set UI state to generating
+  setChatGeneratingState(true);
 
   // Append user message
   appendMessage('user', query);
@@ -953,20 +1025,28 @@ async function handleChatSubmit() {
   const statusContainer = bubbleContainer.querySelector('.reasoning-status-box');
   const deltaTextContainer = bubbleContainer.querySelector('.markdown-body');
   const citationsContainer = bubbleContainer.querySelector('.citations-box');
+  const statsContainer = bubbleContainer.querySelector('.stats-box');
+
+  let accumulatedText = "";
+  let stats = null;
+  let sources = [];
+  let fallback = false;
 
   // Setup streaming POST payload
   const payload = {
     doc_ids: Array.from(selectedChatDocIds),
     doc_id: Array.from(selectedChatDocIds)[0] || "",
     query: query,
-    force_search: false
+    force_search: false,
+    session_id: activeSessionId
   };
 
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: activeAbortController.signal
     });
 
     if (!response.ok) {
@@ -977,7 +1057,6 @@ async function handleChatSubmit() {
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
-    let accumulatedText = "";
 
     while (true) {
       const { value, done } = await reader.read();
@@ -994,22 +1073,17 @@ async function handleChatSubmit() {
           const data = JSON.parse(line);
 
           if (data.type === 'status') {
-            // Update reasoning steps
             appendReasoningStep(statusContainer, data.content);
           } else if (data.type === 'delta') {
-            // Accumulate response text
             accumulatedText += data.content;
             deltaTextContainer.innerHTML = marked.parse(accumulatedText);
-            // Auto scroll chat
             chatMessages.scrollTop = chatMessages.scrollHeight;
           } else if (data.type === 'error') {
             appendReasoningStep(statusContainer, `Error: ${data.content}`, true);
           } else if (data.type === 'result') {
-            // Stream complete. Render final markdown & citations
-            if (accumulatedText) {
-              deltaTextContainer.innerHTML = renderCitationsInText(accumulatedText, data.sources);
-            }
-            renderCitationsFooter(citationsContainer, data.sources, data.fallback);
+            sources = data.sources || [];
+            fallback = data.fallback || false;
+            stats = data.stats || null;
           }
         } catch (err) {
           console.warn("Error parsing stream line:", line, err);
@@ -1017,8 +1091,42 @@ async function handleChatSubmit() {
       }
     }
 
+    // Normal complete or graceful stop rendering
+    if (accumulatedText) {
+      deltaTextContainer.innerHTML = renderCitationsInText(accumulatedText, sources);
+    }
+    renderCitationsFooter(citationsContainer, sources, fallback);
+    if (stats) {
+      renderStatsFooter(statsContainer, stats);
+    }
+
   } catch (e) {
-    loggerErrorBubble(messageId, `Chat execution failed: ${e.message}`);
+    if (e.name === 'AbortError') {
+      // Aborted stream (either hard cancellation fallback or tab closed)
+      console.log("Stream fetch request aborted.");
+      
+      // Calculate basic frontend metrics for aborted session if backend stats didn't arrive
+      if (!stats) {
+        stats = {
+          stopped_by_user: true,
+          completion_tokens: Math.round(accumulatedText.length / 4)
+        };
+      }
+      
+      if (accumulatedText) {
+        deltaTextContainer.innerHTML = renderCitationsInText(accumulatedText, sources);
+      }
+      renderCitationsFooter(citationsContainer, sources, fallback);
+      renderStatsFooter(statsContainer, stats);
+      
+    } else {
+      loggerErrorBubble(messageId, `Chat execution failed: ${e.message}`);
+    }
+  } finally {
+    // Reset state controls
+    setChatGeneratingState(false);
+    activeAbortController = null;
+    activeSessionId = null;
   }
 }
 
@@ -1082,6 +1190,10 @@ function renderChatHistory(messages) {
               <!-- Citations list footer -->
               <div class="citations-box flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-outline/10 hidden">
               </div>
+              
+              <!-- Generation stats footer -->
+              <div class="stats-box text-[10px] text-on-surface-variant/50 font-mono mt-2 pt-2 border-t border-outline/5 hidden">
+              </div>
             </div>
           </div>
         </div>
@@ -1091,6 +1203,7 @@ function renderChatHistory(messages) {
       const statusContainer = bubble.querySelector('.reasoning-status-box');
       const deltaTextContainer = bubble.querySelector('.markdown-body');
       const citationsContainer = bubble.querySelector('.citations-box');
+      const statsContainer = bubble.querySelector('.stats-box');
       
       // Render status steps if present
       if (msg.status_steps && msg.status_steps.length > 0) {
@@ -1108,10 +1221,47 @@ function renderChatHistory(messages) {
       if (msg.sources && msg.sources.length > 0) {
         renderCitationsFooter(citationsContainer, msg.sources, msg.fallback);
       }
+      
+      // Render stats footer if present
+      if (msg.stats) {
+        renderStatsFooter(statsContainer, msg.stats);
+      }
     }
   });
   
   chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function renderStatsFooter(container, stats) {
+  if (!stats) {
+    container.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+  
+  let text = "";
+  if (stats.stopped_by_user) {
+    text += `<span class="text-error font-semibold flex items-center gap-0.5"><span class="material-symbols-outlined text-[10px]">block</span>Stopped by user</span>`;
+    if (stats.completion_tokens) {
+      text += ` • ${stats.completion_tokens} tokens`;
+    }
+    if (stats.speed_tok_per_sec) {
+      text += ` • ${stats.speed_tok_per_sec} tok/s`;
+    }
+    if (stats.generation_time_sec) {
+      text += ` • ${stats.generation_time_sec}s`;
+    }
+  } else {
+    text += `${stats.generation_time_sec || 0}s • ${stats.speed_tok_per_sec || 0} tok/s • ${stats.completion_tokens || 0} tokens`;
+    if (stats.prompt_tokens !== undefined && stats.prompt_tokens !== null && stats.prompt_tokens > 0) {
+      text += ` <span class="opacity-70">(prompt: ${stats.prompt_tokens}, total: ${stats.total_tokens})</span>`;
+    }
+    if (stats.time_to_first_token_sec !== undefined && stats.time_to_first_token_sec !== null) {
+      text += ` • ttft: ${stats.time_to_first_token_sec}s`;
+    }
+  }
+  
+  container.innerHTML = text;
 }
 
 function appendMessage(sender, text) {
@@ -1159,6 +1309,10 @@ function appendAIStreamingMessageContainer(messageId) {
           
           <!-- Citations list footer -->
           <div class="citations-box flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-outline/10 hidden">
+          </div>
+          
+          <!-- Generation stats footer -->
+          <div class="stats-box text-[10px] text-on-surface-variant/50 font-mono mt-2 pt-2 border-t border-outline/5 hidden">
           </div>
         </div>
       </div>
@@ -1491,6 +1645,7 @@ function updateChatHeader() {
   const activeDocIcon = document.getElementById('active-doc-icon');
   const activeDocTitle = document.getElementById('active-doc-title');
   const activeDocPages = document.getElementById('active-doc-pages');
+  const clearChatHistoryBtn = document.getElementById('clear-chat-history-btn');
 
   if (!activeDocIcon || !activeDocTitle || !activeDocPages) return;
 
@@ -1499,6 +1654,7 @@ function updateChatHeader() {
     activeDocIcon.textContent = 'chat_bubble_outline';
     activeDocTitle.textContent = 'No documents selected for chat';
     activeDocPages.textContent = '';
+    if (clearChatHistoryBtn) clearChatHistoryBtn.classList.add('hidden');
   } else if (selectedCount === 1) {
     const docId = Array.from(selectedChatDocIds)[0];
     const doc = documents.find(d => d.doc_id === docId);
@@ -1513,10 +1669,12 @@ function updateChatHeader() {
       activeDocIcon.textContent = icon;
       activeDocTitle.textContent = doc.doc_name;
       activeDocPages.textContent = doc.page_count > 0 ? `(${doc.page_count} pages)` : `(${doc.line_count} lines)`;
+      if (clearChatHistoryBtn) clearChatHistoryBtn.classList.remove('hidden');
     }
   } else {
     activeDocIcon.textContent = 'question_answer';
     activeDocTitle.textContent = `Chatting with ${selectedCount} documents`;
+    if (clearChatHistoryBtn) clearChatHistoryBtn.classList.remove('hidden');
 
     let totalPages = 0;
     let totalLines = 0;
